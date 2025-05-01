@@ -12,6 +12,7 @@ let isReloading = false; // flaga do rozróżnienia zamknięcia połączenia prz
 const errDiv      =  document.getElementById('error');
 const setupDiv    = document.getElementById('setup');
 const lobbyDiv    = document.getElementById('lobby');
+const gameDiv     = document.getElementById('gameInfo');
 const gameCanvas  = document.getElementById('gameCanvas');
 const ctx         = gameCanvas.getContext('2d');
 
@@ -24,6 +25,8 @@ const lobbyHostSp = document.getElementById('lobbyHost');
 const playersList = document.getElementById('playersList');
 const startBtn    = document.getElementById('startGame');
 const cancelBtn   = document.getElementById('cancel');
+
+
 
 // ukrywamy lobby i canvas dopóki nie połączymy
 lobbyDiv.style.display   = 'none';
@@ -131,6 +134,7 @@ ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent
         setupDiv.style.display = 'none';
         gameCanvas.style.display = '';
         drawDice(msg.state.dice);
+        gameDiv.style.display = '';
         break;
       case 'reconnect':
         // serwer przesyła pełny stan gry
