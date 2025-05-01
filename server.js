@@ -73,6 +73,7 @@ wss.on('connection', (ws, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const roomName = url.searchParams.get('room');
   const playerName = url.searchParams.get('name')?.trim();
+  const incomingId = url.searchParams.get('id');
   const playerId = generateUniqueId();
 
   if (!roomName || !rooms.has(roomName) || !playerName) {
@@ -81,6 +82,40 @@ wss.on('connection', (ws, req) => {
   }
 
   const room = rooms.get(roomName);
+  
+  //####
+  if (room.state.phase === 'playing') {
+    // 2a) pozwól reconnect tylko temu, kto już był w players[]
+    const existing = room.state.players.find(p => p.id === incomingId);
+    if (!existing) {
+      ws.close();
+      return;
+    }
+    // 2b) zaakceptuj nowe ws dla tego samego playerId
+    ws.playerId   = incomingId;
+    ws.playerName = existing.name;
+    ws.roomName   = roomName;
+    room.clients.add(ws);
+
+    // 2c) od razu wyślij stan gry, żeby klient mógł zrekonstruować widok
+    sendJSON(ws, {
+      type:  'reconnect',
+      state: room.state
+    });
+    // i nie robimy dalszej logiki lobby
+    return;
+  }
+  //####
+  
+
+
+  // sprawdź, czy pokój istnieje i czy jest w fazie lobby
+  // jeśli nie, zamknij połączenie i nie dodawaj gracza
+  if (!room || room.state.phase !== 'lobby') {
+    ws.close();
+    return;
+  }
+
   room.clients.add(ws);
 
   if (!room.hostId) {
@@ -112,6 +147,19 @@ wss.on('connection', (ws, req) => {
       hostId:   room.hostId,
       hostName: room.hostName
     });
+
+  ws.on('message', data => {
+    const msg = JSON.parse(data);
+    if (msg.type === 'start' && ws.playerId === room.hostId) {
+      // ustawiamy fazę gry
+      room.state.phase = 'playing';
+      // rozsyłamy do wszystkich aktualny stan początkowy
+      broadcastToRoom(roomName, {
+        type: 'gameStart',
+        state: room.state
+      });
+    }
+  });
 
   ws.on('close', () => {
     room.clients.delete(ws);

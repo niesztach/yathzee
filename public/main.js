@@ -6,6 +6,7 @@ let playerName = null;
 let isHost = false;
 let userInitiatedClose = false; //flaga do rozróżnienia zamknięcia połączenia przez użytkownika
 let players = [];
+let isReloading = false; // flaga do rozróżnienia zamknięcia połączenia przez użytkownika
 
 // ====== ELEMENTY DOM ======
 const setupDiv    = document.getElementById('setup');
@@ -27,21 +28,33 @@ const cancelBtn   = document.getElementById('cancel');
 lobbyDiv.style.display   = 'none';
 gameCanvas.style.display = 'none';
 
+// ====== OBSŁUGA ODŚWIEŻANIA KARTY ======
+window.addEventListener('beforeunload', () => {
+  isReloading = true;
+});
+
 // Przywracanie danych z sessionStorage
 window.addEventListener('load', () => {
   const storedRoomCode = sessionStorage.getItem('roomCode');
   const storedPlayerName = sessionStorage.getItem('playerName');
   const storedPlayerId = sessionStorage.getItem('playerId');
   const storedIsHost = sessionStorage.getItem('isHost') === 'true';
+  const storedPhase = sessionStorage.getItem('phase');
 
   if (storedRoomCode && storedPlayerName) {
-    roomCode = storedRoomCode;
-    playerName = storedPlayerName;
-    playerId = storedPlayerId;
-    isHost = storedIsHost;
-
-    // automatycznie reconnect przez WS i pobranie listy
-    joinRoom(roomCode, playerName);
+    roomCode    = storedRoomCode;
+    playerName  = storedPlayerName;
+    playerId    = storedPlayerId;
+    isHost      = storedIsHost;
+  
+    // jeśli byliśmy już w grze
+    if (storedPhase === 'playing') {
+      joinRoom(roomCode, playerName);
+      // widok gry początkowo ukryty, pokażemy go po reconnectcie
+    } else {
+      // jak dotąd: reconnect do lobby
+      joinRoom(roomCode, playerName);
+    }
     console.log('Przywrócono dane z sessionStorage:', { roomCode, playerName, playerId, isHost });
   }
 });
@@ -77,7 +90,8 @@ sessionStorage.setItem('roomCode', roomCode);
 sessionStorage.setItem('playerName', playerName);
 sessionStorage.setItem('isHost', isHost);
 
-  ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent(name)}`);
+const idParam = playerId ? `&id=${playerId}` : '';
+ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent(name)}${idParam}`);
   ws.binaryType = 'arraybuffer';
 
   ws.onopen = () => console.log('Połączono z pokojem', code);
@@ -111,26 +125,46 @@ sessionStorage.setItem('isHost', isHost);
         break;
       case 'gameStart':
         // ukryj lobby, pokaż canvas i narysuj początek gry
+        sessionStorage.setItem('phase', 'playing');
         lobbyDiv.style.display = 'none';
         setupDiv.style.display = 'none';
         gameCanvas.style.display = '';
         drawDice(msg.state.dice);
         break;
+      case 'reconnect':
+        // serwer przesyła pełny stan gry
+        lobbyDiv.style.display   = 'none';
+        setupDiv.style.display   = 'none';
+        gameCanvas.style.display = '';
+        // np. rysujesz kostki i inne elementy stanu:
+        drawDice(msg.state.dice);
+        // a jeśli masz więcej stanów (tury, locki, itp.) – zaktualizuj je tu
+        break;
     }
   };
 
   ws.onclose = () => {
+    if (isReloading) {
+      // odświeżenie strony — nic nie robimy, sessionStorage zostaje
+      return;
+    }
+  
+    if (!isReloading && !userInitiatedClose) {
+      alert('Gra już się rozpoczęła – dołączanie jest zablokowane.');
+      showSetup();
+    }
+
     if (userInitiatedClose) {
-      // kliknięcie “Anuluj” lub świadome zamknięcie
+      // kliknięcie “Anuluj” → wyjście z lobby
       sessionStorage.clear();
-      showSetup(); 
+      showSetup();
     } else {
-      // nieoczekiwane zamknięcie (np. brak pokoju)
+      // awaria połączenia → komunikat i powrót do setup
       alert('Nie udało się połączyć z serwerem/pokojem.');
       sessionStorage.clear();
       showSetup();
     }
-  };
+  };  
 }
 
 // ====== AKTUALIZACJA LOBBY ======
@@ -179,6 +213,7 @@ startBtn.addEventListener('click', () => {
 
 cancelBtn.addEventListener('click', () => {
   userInitiatedClose = true; // flaga do rozróżnienia zamknięcia połączenia przez użytkownika
+  sessionStorage.setItem('phase', 'lobby');
   ws.close();
 });
 
