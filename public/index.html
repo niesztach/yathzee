@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <title>Yahtzee Online</title>
+  <style>
+    body { font-family: sans-serif; }
+    #gameCanvas { border: 1px solid #000; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Yahtzee Online</h1>
+
+  <!-- kontener z informacjami o graczu -->
+  <div id="setup">
+    <input id="playerName" placeholder="Twoje imię" />
+    <div>
+      <button id="btnCreate">Stwórz pokój</button>
+    </div>
+    <div>
+      <input id="roomCodeInput" placeholder="Kod pokoju (np. A5G)" />
+      <button id="btnJoin">Dołącz do pokoju</button>
+    </div>
+  </div>
+
+  <!-- kontener z lobby - ukryty do momentu wejscia -->
+  <div id="lobby" style="display:none;">
+    <p>Pokój: <span id="lobbyCode"></span></p>
+    <p>Twórca: <span id="lobbyHost"></span></p>
+    <ul id="playersList"></ul>
+    <button id="startGame" disabled>Rozpocznij grę</button>
+    <button id="cancel">Anuluj</button>
+  </div>  
+  <canvas id="gameCanvas" width="500" height="120" style="display:none;"></canvas>
+
+  <script src="main.js"></script>  
+
+
+  
+</body>
+</html>
