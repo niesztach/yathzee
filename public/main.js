@@ -9,6 +9,7 @@ let players = [];
 let isReloading = false; // flaga do rozróżnienia zamknięcia połączenia przez użytkownika
 
 // ====== ELEMENTY DOM ======
+const errDiv      =  document.getElementById('error');
 const setupDiv    = document.getElementById('setup');
 const lobbyDiv    = document.getElementById('lobby');
 const gameCanvas  = document.getElementById('gameCanvas');
@@ -150,17 +151,19 @@ ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent
     }
   
     if (!isReloading && !userInitiatedClose) {
-      alert('Gra już się rozpoczęła – dołączanie jest zablokowane.');
+      //alert('Gra już się rozpoczęła, taki pokój nie istnieje bądź został usunięty – dołączanie jest zablokowane.');
       showSetup();
+      errDiv.style.display = '';
     }
 
+    // ### dlaczego to się odpala? ###
     if (userInitiatedClose) {
       // kliknięcie “Anuluj” → wyjście z lobby
       sessionStorage.clear();
       showSetup();
     } else {
       // awaria połączenia → komunikat i powrót do setup
-      alert('Nie udało się połączyć z serwerem/pokojem.');
+      // alert('Nie udało się połączyć z serwerem/pokojem.');
       sessionStorage.clear();
       showSetup();
     }
@@ -197,6 +200,7 @@ btnCreate.addEventListener('click', async () => {
   const { roomCode: code } = await res.json();
   isHost = true;
   joinRoom(code, name);
+  errDiv.style.display = 'none';
 });
 
 btnJoin.addEventListener('click', () => {
@@ -205,6 +209,7 @@ btnJoin.addEventListener('click', () => {
   if (!name || !code) return alert('Podaj imię i kod pokoju');
   isHost = false;
   joinRoom(code, name);
+  errDiv.style.display = 'none';
 });
 
 startBtn.addEventListener('click', () => {

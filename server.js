@@ -70,128 +70,112 @@ app.get('/create-room', (req, res) => {
 
 
 wss.on('connection', (ws, req) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const roomName = url.searchParams.get('room');
+  const url        = new URL(req.url, `http://${req.headers.host}`);
+  const roomName   = url.searchParams.get('room');
   const playerName = url.searchParams.get('name')?.trim();
   const incomingId = url.searchParams.get('id');
-  const playerId = generateUniqueId();
+  const room       = rooms.get(roomName);
 
-  if (!roomName || !rooms.has(roomName) || !playerName) {
+  // 1️⃣ Pokój musi istnieć
+  if (!room) {
     ws.close();
     return;
   }
 
-  const room = rooms.get(roomName);
-  
-  //####
+  // 2️⃣ Faza gry: tylko reconnect istniejących graczy
   if (room.state.phase === 'playing') {
-    // 2a) pozwól reconnect tylko temu, kto już był w players[]
     const existing = room.state.players.find(p => p.id === incomingId);
     if (!existing) {
       ws.close();
       return;
     }
-    // 2b) zaakceptuj nowe ws dla tego samego playerId
+    // zaakceptuj WS tego gracza
     ws.playerId   = incomingId;
     ws.playerName = existing.name;
     ws.roomName   = roomName;
     room.clients.add(ws);
 
-    // 2c) od razu wyślij stan gry, żeby klient mógł zrekonstruować widok
-    sendJSON(ws, {
-      type:  'reconnect',
-      state: room.state
-    });
-    // i nie robimy dalszej logiki lobby
+    // wyślij pełny stan gry
+    sendJSON(ws, { type: 'reconnect', state: room.state });
     return;
   }
-  //####
-  
 
-
-  // sprawdź, czy pokój istnieje i czy jest w fazie lobby
-  // jeśli nie, zamknij połączenie i nie dodawaj gracza
-  if (!room || room.state.phase !== 'lobby') {
+  // 3️⃣ Faza lobby: nowy gracz
+  if (!playerName) {
     ws.close();
     return;
   }
-
+  const playerId = generateUniqueId();
   room.clients.add(ws);
+  ws.playerId   = playerId;
+  ws.playerName = playerName;
+  ws.roomName   = roomName;
 
+  // jeśli pierwszy, ustaw hosta
   if (!room.hostId) {
-    room.hostId = playerId;
+    room.hostId   = playerId;
     room.hostName = playerName;
   }
 
-  ws.playerId = playerId;
-  ws.roomName = roomName;
-  ws.playerName = playerName;
-
-  // dopisz do stanu gry
+  // dopisz do listy i scorecard
   room.state.players.push({ id: playerId, name: playerName });
   room.state.scorecard[playerId] = {};
 
-  // potwierdzenie do dołączającego
-    sendJSON(ws, {
-      type:    'joined',
-      playerId,
-      players: room.state.players,
-      hostId:   room.hostId,
-      hostName: room.hostName
-    });
-  
-    // powiadom wszystkich o nowej liście w lobby
-    broadcastToRoom(roomName, {
-      type:    'lobbyUpdate',
-      players: room.state.players,
-      hostId:   room.hostId,
-      hostName: room.hostName
-    });
+  // potwierdź dołączanie + powiadom wszystkich
+  sendJSON(ws, {
+    type:     'joined',
+    playerId,
+    players:  room.state.players,
+    hostId:   room.hostId,
+    hostName: room.hostName
+  });
+  broadcastToRoom(roomName, {
+    type:     'lobbyUpdate',
+    players:  room.state.players,
+    hostId:   room.hostId,
+    hostName: room.hostName
+  });
 
+  // 4️⃣ Obsługa start gry
   ws.on('message', data => {
     const msg = JSON.parse(data);
     if (msg.type === 'start' && ws.playerId === room.hostId) {
-      // ustawiamy fazę gry
       room.state.phase = 'playing';
-      // rozsyłamy do wszystkich aktualny stan początkowy
-      broadcastToRoom(roomName, {
-        type: 'gameStart',
-        state: room.state
-      });
+      broadcastToRoom(roomName, { type: 'gameStart', state: room.state });
     }
   });
 
+  // 5️⃣ Obsługa rozłączenia
   ws.on('close', () => {
     room.clients.delete(ws);
-    room.state.players = room.state.players.filter(p => p.id !== ws.playerId);
-        // jeśli host odchodzi
-    if (playerId === room.hostId) {
-      if (room.clients.size > 0) {
-        // przekaż rolę hosta pierwszemu
-        const newHost = room.state.players[0];
-        room.hostId   = newHost.id;
-        room.hostName = newHost.name;
-        broadcastToRoom(roomName, {
-          type:     'hostChanged',
-          hostId:   room.hostId,
-          hostName: room.hostName,
-          players:  room.state.players
-        });
+    // usuń z listy tylko w lobby
+    if (room.state.phase === 'lobby') {
+      room.state.players = room.state.players.filter(p => p.id !== ws.playerId);
+      // obsłuż zmianę hosta lub zamknięcie pokoju, jak dotąd
+      if (ws.playerId === room.hostId) {
+        if (room.clients.size > 0) {
+          const newHost = room.state.players[0];
+          room.hostId   = newHost.id;
+          room.hostName = newHost.name;
+          broadcastToRoom(roomName, {
+            type:     'hostChanged',
+            hostId:   room.hostId,
+            hostName: room.hostName,
+            players:  room.state.players
+          });
+        } else {
+          rooms.delete(roomName);
+        }
       } else {
-       // nikt nie został → usuń pokój
-        rooms.delete(roomName);
-        return;
+        broadcastToRoom(roomName, {
+          type:    'lobbyUpdate',
+          players: room.state.players,
+          hostId:   room.hostId,
+          hostName: room.hostName
+        });
       }
-    } else {
-      // normalny gracz odchodzi → tylko aktualizacja lobby
-      broadcastToRoom(roomName, {
-        type:    'lobbyUpdate',
-        players: room.state.players,
-        hostId:   room.hostId,
-        hostName: room.hostName
-      });
     }
+    // w fazie gry połączenie dropnięte – nie usuwamy z players[], więc przy reconnect 
+    // da się wrócić do rozgrywki
   });
 });
-
-
