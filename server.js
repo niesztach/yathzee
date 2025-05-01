@@ -83,34 +83,6 @@ wss.on('connection', (ws, req) => {
   const room = rooms.get(roomName);
   room.clients.add(ws);
 
-  const existingPlayer = room.state.players.find(p => p.id === playerId);
-  if (existingPlayer) {
-    // Gracz wraca do pokoju
-    existingPlayer.disconnected = false;
-    existingPlayer.name = playerName; // Aktualizacja imienia, jeśli zmienione
-    ws.playerId = existingPlayer.id;
-    ws.roomName = roomName;
-    ws.playerName = playerName;
-
-    // Powiadom gracza o ponownym połączeniu
-    sendJSON(ws, {
-      type: 'reconnected',
-      playerId: existingPlayer.id,
-      players: room.state.players,
-      hostId: room.hostId,
-      hostName: room.hostName
-    });
-
-    // Powiadom innych graczy o aktualizacji
-    broadcastToRoom(roomName, {
-      type: 'lobbyUpdate',
-      players: room.state.players,
-      hostId: room.hostId,
-      hostName: room.hostName
-    });
-    return;
-  }
-
   if (!room.hostId) {
     room.hostId = playerId;
     room.hostName = playerName;
@@ -142,52 +114,36 @@ wss.on('connection', (ws, req) => {
     });
 
   ws.on('close', () => {
-    const player = room.state.players.find(p => p.id === ws.playerId);
-    if (player) {
-      player.disconnected = true; // Oznacz gracza jako rozłączonego
-    }
-
     room.clients.delete(ws);
-
-    // Jeśli host odchodzi
+    room.state.players = room.state.players.filter(p => p.id !== ws.playerId);
+        // jeśli host odchodzi
     if (playerId === room.hostId) {
       if (room.clients.size > 0) {
-        // Przekaż rolę hosta pierwszemu aktywnemu graczowi
-        const newHost = room.state.players.find(p => !p.disconnected);
-        if (newHost) {
-          room.hostId = newHost.id;
-          room.hostName = newHost.name;
-          broadcastToRoom(roomName, {
-            type: 'hostChanged',
-            hostId: room.hostId,
-            hostName: room.hostName,
-            players: room.state.players
-          });
-        }
+        // przekaż rolę hosta pierwszemu
+        const newHost = room.state.players[0];
+        room.hostId   = newHost.id;
+        room.hostName = newHost.name;
+        broadcastToRoom(roomName, {
+          type:     'hostChanged',
+          hostId:   room.hostId,
+          hostName: room.hostName,
+          players:  room.state.players
+        });
       } else {
-        // Nikt nie został → usuń pokój
+       // nikt nie został → usuń pokój
         rooms.delete(roomName);
         return;
       }
     } else {
-      // Normalny gracz odchodzi → tylko aktualizacja lobby
+      // normalny gracz odchodzi → tylko aktualizacja lobby
       broadcastToRoom(roomName, {
-        type: 'lobbyUpdate',
+        type:    'lobbyUpdate',
         players: room.state.players,
-        hostId: room.hostId,
+        hostId:   room.hostId,
         hostName: room.hostName
       });
     }
   });
 });
-
-setInterval(() => {
-  for (const [roomName, room] of rooms) {
-    room.state.players = room.state.players.filter(p => !p.disconnected || Date.now() - p.lastSeen < 60000); // 60 sekund
-    if (room.clients.size === 0 && room.state.players.length === 0) {
-      rooms.delete(roomName); // Usuń pusty pokój
-    }
-  }
-}, 30000); // Co 30 sekund
 
 
