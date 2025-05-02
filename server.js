@@ -106,19 +106,13 @@ wss.on('connection', (ws, req) => {
 
   // 2️⃣ Faza gry: tylko reconnect istniejących graczy
   if (room.state.phase === 'playing') {
-    const existing = room.state.players.find(p => p.id === incomingId);
-    if (!existing) {
-      ws.close();
-      return;
-    }
-    // zaakceptuj WS tego gracza
-    ws.playerId   = incomingId;
-    ws.playerName = existing.name;
-    ws.roomName   = roomName;
-    room.clients.add(ws);
-
-    // wyślij pełny stan gry
-    sendJSON(ws, { type: 'reconnect', state: room.state });
+    const scorePreview = generateScorePreview(room.state.dice); // Generuj podgląd punktów
+    sendJSON(ws, {
+      type: 'reconnect',
+      state: room.state,
+      scorePreview // Dołącz podgląd punktów
+    });
+    console.log('Wysłano reconnect:', { state: room.state, scorePreview });
     return;
   }
 
@@ -199,6 +193,7 @@ wss.on('connection', (ws, req) => {
           rollDice(state);
           const scorePreview = generateScorePreview(state.dice);
           broadcastToRoom(roomName, { type: 'update', state, scorePreview });
+          console.log('Wysłano update:', { state, scorePreview });
         } catch (err) {
           ws.send(JSON.stringify({ type: 'error', message: err.message }));
         }
@@ -207,7 +202,9 @@ wss.on('connection', (ws, req) => {
       case 'toggleLock':
         try {
           toggleLock(state, msg.index);
-          broadcastToRoom(roomName, { type: 'update', state });
+          const scorePreview = generateScorePreview(state.dice);
+          broadcastToRoom(roomName, { type: 'update', state, scorePreview });
+          console.log('Wysłano update:', { state, scorePreview });
         } catch (err) {
           ws.send(JSON.stringify({ type: 'error', message: err.message }));
         }
@@ -215,7 +212,9 @@ wss.on('connection', (ws, req) => {
 
       case 'endTurn':
         endTurn(state);
-        broadcastToRoom(roomName, { type: 'update', state });
+        const scorePreview = generateScorePreview(state.dice);
+        broadcastToRoom(roomName, { type: 'update', state, scorePreview });
+        console.log('Wysłano update:', { state, scorePreview });
         break;
 
       case 'selectCategory':
@@ -244,7 +243,12 @@ wss.on('connection', (ws, req) => {
           state.phase = 'finished';
           broadcastToRoom(roomName, { type: 'gameOver', scorecard: state.scorecard });
         } else {
-          broadcastToRoom(roomName, { type: 'update', state });
+          const scorePreview = generateScorePreview(state.dice); // Dodaj generowanie scorePreview
+          broadcastToRoom(roomName, {
+            type: 'update',
+            state,
+            scorePreview // Dołącz scorePreview do komunikatu
+          });
         }
         break;
     }

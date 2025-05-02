@@ -26,8 +26,6 @@ const playersList = document.getElementById('playersList');
 const startBtn    = document.getElementById('startGame');
 const cancelBtn   = document.getElementById('cancel');
 
-
-
 // ukrywamy lobby i canvas dopóki nie połączymy
 lobbyDiv.style.display   = 'none';
 gameCanvas.style.display = 'none';
@@ -44,40 +42,26 @@ window.addEventListener('load', () => {
   const storedPlayerId = sessionStorage.getItem('playerId');
   const storedIsHost = sessionStorage.getItem('isHost') === 'true';
   const storedPhase = sessionStorage.getItem('phase');
-  const storedGameState = sessionStorage.getItem('gameState');
 
-  if (storedRoomCode && storedPlayerName) {
-    roomCode = storedRoomCode;
-    playerName = storedPlayerName;
-    playerId = storedPlayerId;
-    isHost = storedIsHost;
-
-    if (storedPhase === 'playing' && storedGameState) {
-      const gameState = JSON.parse(storedGameState);
-
-      // Przywróć stan gry
-      drawDice(gameState.dice, gameState.locked);
-      document.getElementById('roundDisplay').textContent = `Tura: ${gameState.players[gameState.currentTurn].name}`;
-      document.getElementById('rollsLeft').textContent = `Rzuty: ${gameState.rollsLeft}`;
-      document.getElementById('scoreTable').style.display = ''; // Przywróć tabelę wyników
-
-      Object.entries(gameState.scorecard[playerId]).forEach(([category, score]) => {
-        const cell = document.getElementById(category);
-        if (score !== null) {
-          cell.textContent = score; // Wypełniona kategoria
-        } else {
-          cell.textContent = '(0)'; // Domyślny podgląd punktów
-        }
-      });
-
-      document.getElementById('playerNameDisplay').textContent = playerName; // Przywróć nazwę gracza
-      gameCanvas.style.display = '';
-      gameInfo.style.display = '';
-    } else {
-      joinRoom(roomCode, playerName);
-    }
-    console.log('Przywrócono dane z sessionStorage:', { roomCode, playerName, playerId, isHost });
+  if (!storedRoomCode || !storedPlayerName) {
+    return showSetup(); // Jeśli brakuje danych, wróć do ekranu początkowego
   }
+
+  // Przywróć dane identyfikacyjne
+  roomCode = storedRoomCode;
+  playerName = storedPlayerName;
+  playerId = storedPlayerId;
+  isHost = storedIsHost;
+
+  // Zawsze otwieraj połączenie WebSocket
+  joinRoom(roomCode, playerName);
+
+  // Ukryj setup, jeśli gra jest w toku
+  if (storedPhase === 'playing') {
+    setupDiv.style.display = 'none';
+  }
+
+  // Reszta UI zostanie ustawiona w handlerze 'reconnect' lub 'update'
 });
 
 // ====== FUNKCJA POKAZUJĄCA LOBBY ======
@@ -150,8 +134,8 @@ ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent
         break;
       case 'gameStart':
         sessionStorage.setItem('phase', 'playing');
+        setupDiv.style.display = 'none'; // Ukryj setup
         lobbyDiv.style.display = 'none';
-        setupDiv.style.display = 'none';
         gameCanvas.style.display = '';
         gameInfo.style.display = '';
         document.getElementById('scoreTable').style.display = ''; // Pokaż tabelę wyników
@@ -159,14 +143,39 @@ ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent
         break;
       
       case 'reconnect':
-        lobbyDiv.style.display = 'none';
-        setupDiv.style.display = 'none';
-        gameCanvas.style.display = '';
-        gameInfo.style.display = ''; // Dodaj to
-        drawDice(msg.state.dice);
+        console.log('Otrzymano reconnect:', msg);
+        console.log('Otrzymano komunikat reconnect:', msg);
+        setupDiv.style.display = 'none'; // Ukryj setup
+        drawDice(msg.state.dice, msg.state.locked);
+        document.getElementById('roundDisplay').textContent = `Tura: ${msg.state.players[msg.state.currentTurn].name}`;
+        document.getElementById('rollsLeft').textContent = `Rzuty: ${msg.state.rollsLeft}`;
+        document.getElementById('scoreTable').style.display = ''; // Pokaż tabelę wyników
+      
+        // Ustaw nazwę gracza w widoku gry
+        document.getElementById('playerNameDisplay').textContent = playerName;
+      
+        // Aktualizuj tabelę wyników
+        Object.entries(msg.state.scorecard[playerId]).forEach(([category, score]) => {
+          const cell = document.getElementById(category);
+          const button = document.querySelector(`button[data-category="${category}"]`);
+          if (score !== null) {
+            cell.textContent = score; // Wypełniona kategoria
+            button.disabled = true; // Wyłącz przycisk, jeśli kategoria jest już wypełniona
+          } else {
+            const previewScore = msg.scorePreview[category];
+            cell.textContent = `(${previewScore})`; // Podgląd punktów
+            button.disabled = false; // Włącz przycisk, jeśli kategoria jest dostępna
+          }
+        });
+      
+        gameInfo.style.display = '';
         break;
       
       case 'update':
+        console.log('Otrzymano komunikat update:', msg);
+        if (!msg.scorePreview) {
+          console.error('Brak scorePreview w komunikacie update:', msg);
+        }
         drawDice(msg.state.dice, msg.state.locked);
         document.getElementById('roundDisplay').textContent = `Tura: ${msg.state.players[msg.state.currentTurn].name}`;
         document.getElementById('rollsLeft').textContent = `Rzuty: ${msg.state.rollsLeft}`;
