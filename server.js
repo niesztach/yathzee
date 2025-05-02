@@ -1,7 +1,6 @@
 const express = require('express');
 const http    = require('http');
 const WebSocket = require('ws');
-const RoomManager = require('./game/manager');
 
 const app = express();
 const server = http.createServer(app);
@@ -22,22 +21,42 @@ function broadcastToRoom(roomName, msg) {
   const room = rooms.get(roomName);
   if (!room) return;
   for (const client of room.clients) {
-          sendJSON(client, msg);
+    sendJSON(client, msg);
   }
 }
 
 function generateUniqueId() { return Math.random().toString(36).slice(2); }
 function sendJSON(ws, obj) { ws.send(JSON.stringify(obj)); }
+
 function createInitialGameState() {
   return {
     phase: 'lobby',
-    players: [],      // tu będziesz trzymać listę graczy
-    dice: [0,0,0,0,0],
-    locked: [false, false, false, false, false],
-    whoseTurn: null,
-    rollsLeft: 0,
-    scorecard: {},    // { playerId: { ones:null,… } }
+    players: [],
+    dice: [0, 0, 0, 0, 0],
+    locked: [false, false, false, false, false], // Zainicjalizowane blokady
+    currentTurn: 0,
+    rollsLeft: 3,
+    scorecard: {},
   };
+}
+
+function rollDice(state) {
+  if (state.rollsLeft <= 0) throw new Error('No rolls left');
+  state.dice = state.dice.map((val, i) =>
+    state.locked[i] ? val : Math.floor(Math.random() * 6) + 1
+  );
+  state.rollsLeft--;
+}
+
+function toggleLock(state, index) {
+  if (index < 0 || index >= state.dice.length) throw new Error('Invalid dice index');
+  state.locked[index] = !state.locked[index]; // Zmień stan blokady
+}
+
+function endTurn(state) {
+  state.rollsLeft = 3;
+  state.locked = [false, false, false, false, false];
+  state.currentTurn = (state.currentTurn + 1) % state.players.length;
 }
 
 // ##########  tworzenie pokoju ##############
@@ -143,6 +162,53 @@ wss.on('connection', (ws, req) => {
     if (msg.type === 'start' && ws.playerId === room.hostId) {
       room.state.phase = 'playing';
       broadcastToRoom(roomName, { type: 'gameStart', state: room.state });
+    }
+  });
+
+  // 6️⃣ Obsługa akcji w grze
+  ws.on('message', data => {
+    const msg = JSON.parse(data);
+    const state = room.state;
+
+    // Sprawdź, czy to tura gracza
+    const currentPlayer = state.players[state.currentTurn];
+    if (ws.playerId !== currentPlayer.id) {
+      ws.send(JSON.stringify({ type: 'error', message: 'Not your turn' }));
+      return;
+    }
+
+    switch (msg.type) {
+      case 'rollDice':
+        try {
+          rollDice(state);
+          broadcastToRoom(roomName, { type: 'update', state });
+        } catch (err) {
+          ws.send(JSON.stringify({ type: 'error', message: err.message }));
+        }
+        break;
+
+      case 'toggleLock':
+        try {
+          toggleLock(state, msg.index);
+          broadcastToRoom(roomName, { type: 'update', state });
+        } catch (err) {
+          ws.send(JSON.stringify({ type: 'error', message: err.message }));
+        }
+        break;
+
+      case 'endTurn':
+        endTurn(state);
+        broadcastToRoom(roomName, { type: 'update', state });
+        break;
+
+      case 'toggleLock':
+        try {
+          toggleLock(state, msg.index); // Zmień stan blokady dla wybranej kostki
+          broadcastToRoom(roomName, { type: 'update', state }); // Wyślij zaktualizowany stan do wszystkich graczy
+        } catch (err) {
+          ws.send(JSON.stringify({ type: 'error', message: err.message }));
+        }
+        break;
     }
   });
 

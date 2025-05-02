@@ -71,11 +71,11 @@ function showSetup() {
 }
 
 // ====== RYSOWANIE KOSTEK ======
-function drawDice(dice) {
+function drawDice(dice, locked = [false, false, false, false, false]) {
   ctx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
   dice.forEach((val, i) => {
     const x = 20 + i * 90;
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = locked[i] ? '#ccc' : '#fff'; // Szare tło dla zablokowanych kostek
     ctx.fillRect(x, 20, 60, 60);
     ctx.strokeRect(x, 20, 60, 60);
     ctx.fillStyle = '#000';
@@ -128,22 +128,31 @@ ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent
         updateLobbyUI();
         break;
       case 'gameStart':
-        // ukryj lobby, pokaż canvas i narysuj początek gry
         sessionStorage.setItem('phase', 'playing');
         lobbyDiv.style.display = 'none';
         setupDiv.style.display = 'none';
         gameCanvas.style.display = '';
+        gameInfo.style.display = ''; // Dodaj to
         drawDice(msg.state.dice);
-        gameDiv.style.display = '';
         break;
+      
       case 'reconnect':
-        // serwer przesyła pełny stan gry
-        lobbyDiv.style.display   = 'none';
-        setupDiv.style.display   = 'none';
+        lobbyDiv.style.display = 'none';
+        setupDiv.style.display = 'none';
         gameCanvas.style.display = '';
-        // np. rysujesz kostki i inne elementy stanu:
+        gameInfo.style.display = ''; // Dodaj to
         drawDice(msg.state.dice);
-        // a jeśli masz więcej stanów (tury, locki, itp.) – zaktualizuj je tu
+        break;
+      
+      case 'update':
+        drawDice(msg.state.dice, msg.state.locked);
+        document.getElementById('roundDisplay').textContent = `Tura: ${msg.state.players[msg.state.currentTurn].name}`;
+        document.getElementById('rollsLeft').textContent = `Rzuty: ${msg.state.rollsLeft}`;
+        gameInfo.style.display = ''; // Dodaj to, jeśli nie jest widoczne
+        break;
+
+      case 'error':
+        alert(msg.message);
         break;
     }
   };
@@ -224,5 +233,31 @@ cancelBtn.addEventListener('click', () => {
   userInitiatedClose = true; // flaga do rozróżnienia zamknięcia połączenia przez użytkownika
   sessionStorage.setItem('phase', 'lobby');
   ws.close();
+});
+
+document.getElementById('rollDice').addEventListener('click', () => {
+  ws.send(JSON.stringify({ type: 'rollDice' }));
+});
+
+document.getElementById('endTurn').addEventListener('click', () => {
+  ws.send(JSON.stringify({ type: 'endTurn' }));
+});
+
+document.querySelectorAll('.die').forEach((die, index) => {
+  die.addEventListener('click', () => {
+    ws.send(JSON.stringify({ type: 'toggleLock', index })); // Wyślij komunikat do serwera
+  });
+});
+
+gameCanvas.addEventListener('click', (event) => {
+  const rect = gameCanvas.getBoundingClientRect();
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+
+  // Sprawdź, która kostka została kliknięta
+  const index = Math.floor(x / 90); // Zakładamy, że każda kostka ma szerokość 90px
+  if (index >= 0 && index < 5) {
+    ws.send(JSON.stringify({ type: 'toggleLock', index })); // Wyślij komunikat do serwera
+  }
 });
 
