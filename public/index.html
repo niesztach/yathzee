@@ -45,10 +45,105 @@
     <p>Rzuty: <span id="rollsLeft">3</span></p>
     <button id="rollDice">Rzuć kostkami</button>
     <button id="endTurn">Zakończ turę</button>
+  </div>
+
+  <div id="scoreTable" style="display:none;">
+    <table>
+      <thead>
+        <tr>
+          <th>Kategoria</th>
+          <th>Punkty</th>
+          <th>Akcja</th>
+        </tr>
+      </thead>
+      <tbody id="scoreRows">
+        <tr data-category="ones">
+          <td>Jedynki</td>
+          <td id="ones">(0)</td>
+          <td><button class="acceptBtn" data-category="ones" disabled>Akceptuj</button></td>
+        </tr>
+        <tr data-category="twos">
+          <td>Dwójki</td>
+          <td id="twos">(0)</td>
+          <td><button class="acceptBtn" data-category="twos" disabled>Akceptuj</button></td>
+        </tr>
+        <tr data-category="threes">
+          <td>Trójki</td>
+          <td id="threes">(0)</td>
+          <td><button class="acceptBtn" data-category="threes" disabled>Akceptuj</button></td>
+        </tr>
+        <tr data-category="fours">
+          <td>Czwórki</td>
+          <td id="fours">(0)</td>
+          <td><button class="acceptBtn" data-category="fours" disabled>Akceptuj</button></td>
+        </tr> 
+        <tr data-category="fives">
+          <td>Piątki</td>
+          <td id="fives">(0)</td>
+          <td><button class="acceptBtn" data-category="fives" disabled>Akceptuj</button></td>
+        </tr>
+        <tr data-category="sixes">
+          <td>Szóstki</td>
+          <td id="sixes">(0)</td>
+          <td><button class="acceptBtn" data-category="sixes" disabled>Akceptuj</button></td>
+        </tr>
+        <tr data-category="threeOfAKind">
+          <td>Trójka</td>
+          <td id="threeOfAKind">(0)</td>
+          <td><button class="acceptBtn" data-category="threeOfAKind" disabled>Akceptuj</button></td>
+        </tr>
+        <tr data-category="fourOfAKind">
+          <td>Czwórka</td>
+          <td id="fourOfAKind">(0)</td>
+          <td><button class="acceptBtn" data-category="fourOfAKind" disabled>Akceptuj</button></td>
+        </tr>
+        <tr data-category="fullHouse">
+          <td>Full House</td>
+          <td id="fullHouse">(0)</td>
+          <td><button class="acceptBtn" data-category="fullHouse" disabled>Akceptuj</button></td>
+        </tr>
+        <tr data-category="smallStraight">
+          <td>Mała Strita</td>
+          <td id="smallStraight">(0)</td>
+          <td><button class="acceptBtn" data-category="smallStraight" disabled>Akceptuj</button></td>
+        </tr>
+        <tr data-category="largeStraight">
+          <td>Duża Strita</td>
+          <td id="largeStraight">(0)</td>
+          <td><button class="acceptBtn" data-category="largeStraight" disabled>Akceptuj</button></td>
+        </tr>
+        <tr data-category="yahtzee">
+          <td>Yahtzee</td>
+          <td id="yahtzee">(0)</td>
+          <td><button class="acceptBtn" data-category="yahtzee" disabled>Akceptuj</button></td>
+        </tr>
+        <tr data-category="chance">
+          <td>Szansa</td>
+          <td id="chance">(0)</td>
+          <td><button class="acceptBtn" data-category="chance" disabled>Akceptuj</button></td>
+        </tr>
+        <tr data-category="bonus">
+          <td>Bonus</td>
+          <td id="bonus">(0)</td>
+          <td><button class="acceptBtn" data-category="bonus" disabled>Akceptuj</button></td>
+        </tr>
+        <tr data-category="total">
+          <td>Łącznie</td>
+          <td id="total">(0)</td>
+          <td><button class="acceptBtn" data-category="total" disabled>Akceptuj</button></td>
+        </tr>
+        <tr data-category="finalScore">
+          <td>Wynik końcowy</td>
+          <td id="finalScore">(0)</td>
+          <td><button class="acceptBtn" data-category="finalScore" disabled>Akceptuj</button></td>
+        </tr>
+        
+        <!-- Dodaj inne kategorie w podobny sposób -->
+      </tbody>
+    </table>
+  </div>
 
   <script src="main.js"></script>  
 
-
-  
 </body>
 </html>

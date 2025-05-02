@@ -44,19 +44,36 @@ window.addEventListener('load', () => {
   const storedPlayerId = sessionStorage.getItem('playerId');
   const storedIsHost = sessionStorage.getItem('isHost') === 'true';
   const storedPhase = sessionStorage.getItem('phase');
+  const storedGameState = sessionStorage.getItem('gameState');
 
   if (storedRoomCode && storedPlayerName) {
-    roomCode    = storedRoomCode;
-    playerName  = storedPlayerName;
-    playerId    = storedPlayerId;
-    isHost      = storedIsHost;
-  
-    // jeśli byliśmy już w grze
-    if (storedPhase === 'playing') {
-      joinRoom(roomCode, playerName);
-      // widok gry początkowo ukryty, pokażemy go po reconnectcie
+    roomCode = storedRoomCode;
+    playerName = storedPlayerName;
+    playerId = storedPlayerId;
+    isHost = storedIsHost;
+
+    if (storedPhase === 'playing' && storedGameState) {
+      const gameState = JSON.parse(storedGameState);
+
+      // Przywróć stan gry
+      drawDice(gameState.dice, gameState.locked);
+      document.getElementById('roundDisplay').textContent = `Tura: ${gameState.players[gameState.currentTurn].name}`;
+      document.getElementById('rollsLeft').textContent = `Rzuty: ${gameState.rollsLeft}`;
+      document.getElementById('scoreTable').style.display = ''; // Przywróć tabelę wyników
+
+      Object.entries(gameState.scorecard[playerId]).forEach(([category, score]) => {
+        const cell = document.getElementById(category);
+        if (score !== null) {
+          cell.textContent = score; // Wypełniona kategoria
+        } else {
+          cell.textContent = '(0)'; // Domyślny podgląd punktów
+        }
+      });
+
+      document.getElementById('playerNameDisplay').textContent = playerName; // Przywróć nazwę gracza
+      gameCanvas.style.display = '';
+      gameInfo.style.display = '';
     } else {
-      // jak dotąd: reconnect do lobby
       joinRoom(roomCode, playerName);
     }
     console.log('Przywrócono dane z sessionStorage:', { roomCode, playerName, playerId, isHost });
@@ -111,6 +128,10 @@ ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent
 
        isHost = (msg.hostId === playerId);
        lobbyHostSp.textContent = msg.hostName;
+
+       // Ustaw nazwę gracza w widoku gry
+       document.getElementById('playerNameDisplay').textContent = playerName;
+
        updateLobbyUI();
         break;
       case 'playerJoined':
@@ -132,7 +153,8 @@ ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent
         lobbyDiv.style.display = 'none';
         setupDiv.style.display = 'none';
         gameCanvas.style.display = '';
-        gameInfo.style.display = ''; // Dodaj to
+        gameInfo.style.display = '';
+        document.getElementById('scoreTable').style.display = ''; // Pokaż tabelę wyników
         drawDice(msg.state.dice);
         break;
       
@@ -148,7 +170,42 @@ ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent
         drawDice(msg.state.dice, msg.state.locked);
         document.getElementById('roundDisplay').textContent = `Tura: ${msg.state.players[msg.state.currentTurn].name}`;
         document.getElementById('rollsLeft').textContent = `Rzuty: ${msg.state.rollsLeft}`;
-        gameInfo.style.display = ''; // Dodaj to, jeśli nie jest widoczne
+        document.getElementById('scoreTable').style.display = ''; // Pokaż tabelę wyników
+
+        // Ustaw nazwę gracza w widoku gry
+        document.getElementById('playerNameDisplay').textContent = playerName;
+
+        // Aktualizuj tabelę wyników
+        Object.entries(msg.state.scorecard[playerId]).forEach(([category, score]) => {
+          const cell = document.getElementById(category);
+          const button = document.querySelector(`button[data-category="${category}"]`);
+          if (score !== null) {
+            cell.textContent = score; // Wypełniona kategoria
+            button.disabled = true; // Wyłącz przycisk, jeśli kategoria jest już wypełniona
+          } else {
+            const previewScore = msg.scorePreview[category];
+            cell.textContent = `(${previewScore})`; // Podgląd punktów
+            button.disabled = false; // Włącz przycisk, jeśli kategoria jest dostępna
+          }
+        });
+
+        // Zapisz stan gry w sessionStorage
+        sessionStorage.setItem('gameState', JSON.stringify({
+          dice: msg.state.dice,
+          locked: msg.state.locked,
+          currentTurn: msg.state.currentTurn,
+          rollsLeft: msg.state.rollsLeft,
+          scorecard: msg.state.scorecard,
+          players: msg.state.players,
+        }));
+
+        gameInfo.style.display = '';
+        break;
+
+      case 'gameOver':
+        sessionStorage.setItem('phase', 'finished');
+        alert('Gra zakończona! Wyniki:');
+        console.log(msg.scorecard);
         break;
 
       case 'error':
@@ -172,6 +229,7 @@ ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent
     // ### dlaczego to się odpala? ###
     if (userInitiatedClose) {
       // kliknięcie “Anuluj” → wyjście z lobby
+      sessionStorage.setItem('phase', 'lobby');
       sessionStorage.clear();
       showSetup();
     } else {
@@ -226,6 +284,7 @@ btnJoin.addEventListener('click', () => {
 });
 
 startBtn.addEventListener('click', () => {
+  sessionStorage.setItem('phase', 'playing');
   ws.send(JSON.stringify({ type: 'start' }));
 });
 
@@ -259,5 +318,13 @@ gameCanvas.addEventListener('click', (event) => {
   if (index >= 0 && index < 5) {
     ws.send(JSON.stringify({ type: 'toggleLock', index })); // Wyślij komunikat do serwera
   }
+});
+
+document.getElementById('scoreRows').addEventListener('click', (event) => {
+  const button = event.target.closest('button.acceptBtn');
+  if (!button) return;
+
+  const category = button.dataset.category;
+  ws.send(JSON.stringify({ type: 'selectCategory', category }));
 });
 

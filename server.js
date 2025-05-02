@@ -33,15 +33,17 @@ function createInitialGameState() {
     phase: 'lobby',
     players: [],
     dice: [0, 0, 0, 0, 0],
-    locked: [false, false, false, false, false], // Zainicjalizowane blokady
+    locked: [false, false, false, false, false],
     currentTurn: 0,
     rollsLeft: 3,
-    scorecard: {},
+    scorecard: {}, // { playerId: { ones: null, twos: null, ... } }
   };
 }
 
 function rollDice(state) {
-  if (state.rollsLeft <= 0) throw new Error('No rolls left');
+  if (state.rollsLeft <= 0) {
+    throw new Error('No rolls left'); // Możesz to zastąpić komunikatem do klienta
+  }
   state.dice = state.dice.map((val, i) =>
     state.locked[i] ? val : Math.floor(Math.random() * 6) + 1
   );
@@ -139,7 +141,21 @@ wss.on('connection', (ws, req) => {
 
   // dopisz do listy i scorecard
   room.state.players.push({ id: playerId, name: playerName });
-  room.state.scorecard[playerId] = {};
+  room.state.scorecard[playerId] = {
+    ones: null,
+    twos: null,
+    threes: null,
+    fours: null,
+    fives: null,
+    sixes: null,
+    threeOfAKind: null,
+    fourOfAKind: null,
+    fullHouse: null,
+    smallStraight: null,
+    largeStraight: null,
+    yahtzee: null,
+    chance: null,
+  };
 
   // potwierdź dołączanie + powiadom wszystkich
   sendJSON(ws, {
@@ -170,18 +186,19 @@ wss.on('connection', (ws, req) => {
     const msg = JSON.parse(data);
     const state = room.state;
 
-    // Sprawdź, czy to tura gracza
+    // Zdefiniuj currentPlayer raz na początku
     const currentPlayer = state.players[state.currentTurn];
-    if (ws.playerId !== currentPlayer.id) {
-      ws.send(JSON.stringify({ type: 'error', message: 'Not your turn' }));
-      return;
-    }
 
     switch (msg.type) {
       case 'rollDice':
+        if (ws.playerId !== currentPlayer.id) {
+          ws.send(JSON.stringify({ type: 'error', message: 'To nie jest Twoja tura!' }));
+          return;
+        }
         try {
           rollDice(state);
-          broadcastToRoom(roomName, { type: 'update', state });
+          const scorePreview = generateScorePreview(state.dice);
+          broadcastToRoom(roomName, { type: 'update', state, scorePreview });
         } catch (err) {
           ws.send(JSON.stringify({ type: 'error', message: err.message }));
         }
@@ -201,12 +218,33 @@ wss.on('connection', (ws, req) => {
         broadcastToRoom(roomName, { type: 'update', state });
         break;
 
-      case 'toggleLock':
-        try {
-          toggleLock(state, msg.index); // Zmień stan blokady dla wybranej kostki
-          broadcastToRoom(roomName, { type: 'update', state }); // Wyślij zaktualizowany stan do wszystkich graczy
-        } catch (err) {
-          ws.send(JSON.stringify({ type: 'error', message: err.message }));
+      case 'selectCategory':
+        const { category } = msg;
+
+        if (ws.playerId !== currentPlayer.id) {
+          ws.send(JSON.stringify({ type: 'error', message: 'To nie jest Twoja tura!' }));
+          return;
+        }
+
+        if (state.scorecard[ws.playerId][category] !== null) {
+          ws.send(JSON.stringify({ type: 'error', message: 'Category already filled' }));
+          return;
+        }
+
+        const score = calculateScore(state.dice, category);
+        state.scorecard[ws.playerId][category] = score;
+
+        endTurn(state);
+
+        const allFilled = Object.values(state.scorecard).every(playerScores =>
+          Object.values(playerScores).every(score => score !== null)
+        );
+
+        if (allFilled) {
+          state.phase = 'finished';
+          broadcastToRoom(roomName, { type: 'gameOver', scorecard: state.scorecard });
+        } else {
+          broadcastToRoom(roomName, { type: 'update', state });
         }
         break;
     }
@@ -246,3 +284,38 @@ wss.on('connection', (ws, req) => {
     // da się wrócić do rozgrywki
   });
 });
+
+function calculateScore(dice, category) {
+  const counts = Array(7).fill(0); // Licznik dla wartości od 1 do 6
+  dice.forEach(d => counts[d]++);
+
+  switch (category) {
+    case 'ones': return counts[1] * 1;
+    case 'twos': return counts[2] * 2;
+    case 'threes': return counts[3] * 3;
+    case 'fours': return counts[4] * 4;
+    case 'fives': return counts[5] * 5;
+    case 'sixes': return counts[6] * 6;
+    case 'threeOfAKind': return counts.some(c => c >= 3) ? dice.reduce((a, b) => a + b, 0) : 0;
+    case 'fourOfAKind': return counts.some(c => c >= 4) ? dice.reduce((a, b) => a + b, 0) : 0;
+    case 'fullHouse': return counts.includes(3) && counts.includes(2) ? 25 : 0;
+    case 'smallStraight': return [1, 1, 1, 1].every((v, i) => counts.slice(i + 1, i + 5).includes(v)) ? 30 : 0;
+    case 'largeStraight': return [1, 1, 1, 1, 1].every((v, i) => counts.slice(i + 1, i + 6).includes(v)) ? 40 : 0;
+    case 'yahtzee': return counts.some(c => c === 5) ? 50 : 0;
+    case 'chance': return dice.reduce((a, b) => a + b, 0);
+    default: return 0;
+  }
+}
+
+function generateScorePreview(dice) {
+  const categories = [
+    'ones', 'twos', 'threes', 'fours', 'fives', 'sixes',
+    'threeOfAKind', 'fourOfAKind', 'fullHouse',
+    'smallStraight', 'largeStraight', 'yahtzee', 'chance'
+  ];
+  const preview = {};
+  categories.forEach(category => {
+    preview[category] = calculateScore(dice, category);
+  });
+  return preview;
+}
