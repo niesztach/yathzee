@@ -12,7 +12,6 @@ let isReloading = false; // flaga do rozróżnienia zamknięcia połączenia prz
 const errDiv      =  document.getElementById('error');
 const setupDiv    = document.getElementById('setup');
 const lobbyDiv    = document.getElementById('lobby');
-const gameDiv     = document.getElementById('gameInfo');
 const gameCanvas  = document.getElementById('gameCanvas');
 const ctx         = gameCanvas.getContext('2d');
 
@@ -25,6 +24,7 @@ const lobbyHostSp = document.getElementById('lobbyHost');
 const playersList = document.getElementById('playersList');
 const startBtn    = document.getElementById('startGame');
 const cancelBtn   = document.getElementById('cancel');
+const loadingDiv  = document.getElementById('loading');
 
 // ukrywamy lobby i canvas dopóki nie połączymy
 lobbyDiv.style.display   = 'none';
@@ -85,6 +85,35 @@ function drawDice(dice, locked = [false, false, false, false, false]) {
   });
 }
 
+// ====== RENDEROWANIE GRY ======
+function renderGame(state, scorePreview) {
+  // 1) rysuj kostki
+  drawDice(state.dice, state.locked);
+  // 2) wyświetl bieżącą turę i rzuty
+  document.getElementById('roundDisplay').textContent = `Tura: ${state.players[state.currentTurn].name}`;
+  document.getElementById('rollsLeft').textContent = `Rzuty: ${state.rollsLeft}`;
+  // 3) wypełnij tabelę i steruj przyciskami
+  Object.entries(state.scorecard[playerId]).forEach(([cat, sc]) => {
+    const cell   = document.getElementById(cat);
+    const button = document.querySelector(`button[data-category="${cat}"]`);
+    if (sc !== null) {
+      cell.textContent = sc;
+      button.disabled = true;
+    } else {
+      cell.textContent = `(${scorePreview[cat]})`;
+      button.disabled = false;
+    }
+  });
+  // 4) pokaż planszę i infopanel
+  setupDiv.style.display = 'none';
+  lobbyDiv.style.display = 'none';
+  gameCanvas.style.display = '';
+  gameInfo.style.display   = '';
+  document.getElementById('scoreTable').style.display = ''; // Pokaż tabelę wyników
+}
+
+
+
 // ====== FUNKCJA ŁĄCZĄCA WS ======
 function joinRoom(code, name) {
   roomCode   = code;
@@ -99,7 +128,10 @@ const idParam = playerId ? `&id=${playerId}` : '';
 ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent(name)}${idParam}`);
   ws.binaryType = 'arraybuffer';
 
-  ws.onopen = () => console.log('Połączono z pokojem', code);
+  ws.onopen = () => {
+    console.log('Połączono z pokojem', code);
+    isReloading = false;
+  };
 
   ws.onmessage = e => {
     const msg = JSON.parse(e.data);
@@ -143,61 +175,11 @@ ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent
         break;
       
       case 'reconnect':
-        console.log('Otrzymano reconnect:', msg);
-        console.log('Otrzymano komunikat reconnect:', msg);
-        setupDiv.style.display = 'none'; // Ukryj setup
-        drawDice(msg.state.dice, msg.state.locked);
-        document.getElementById('roundDisplay').textContent = `Tura: ${msg.state.players[msg.state.currentTurn].name}`;
-        document.getElementById('rollsLeft').textContent = `Rzuty: ${msg.state.rollsLeft}`;
-        document.getElementById('scoreTable').style.display = ''; // Pokaż tabelę wyników
-      
-        // Ustaw nazwę gracza w widoku gry
-        document.getElementById('playerNameDisplay').textContent = playerName;
-      
-        // Aktualizuj tabelę wyników
-        Object.entries(msg.state.scorecard[playerId]).forEach(([category, score]) => {
-          const cell = document.getElementById(category);
-          const button = document.querySelector(`button[data-category="${category}"]`);
-          if (score !== null) {
-            cell.textContent = score; // Wypełniona kategoria
-            button.disabled = true; // Wyłącz przycisk, jeśli kategoria jest już wypełniona
-          } else {
-            const previewScore = msg.scorePreview[category];
-            cell.textContent = `(${previewScore})`; // Podgląd punktów
-            button.disabled = false; // Włącz przycisk, jeśli kategoria jest dostępna
-          }
-        });
-      
-        gameInfo.style.display = '';
+        renderGame(msg.state,  msg.scorePreview);
         break;
-      
+     
       case 'update':
-        console.log('Otrzymano komunikat update:', msg);
-        if (!msg.scorePreview) {
-          console.error('Brak scorePreview w komunikacie update:', msg);
-        }
-        drawDice(msg.state.dice, msg.state.locked);
-        document.getElementById('roundDisplay').textContent = `Tura: ${msg.state.players[msg.state.currentTurn].name}`;
-        document.getElementById('rollsLeft').textContent = `Rzuty: ${msg.state.rollsLeft}`;
-        document.getElementById('scoreTable').style.display = ''; // Pokaż tabelę wyników
-
-        // Ustaw nazwę gracza w widoku gry
-        document.getElementById('playerNameDisplay').textContent = playerName;
-
-        // Aktualizuj tabelę wyników
-        Object.entries(msg.state.scorecard[playerId]).forEach(([category, score]) => {
-          const cell = document.getElementById(category);
-          const button = document.querySelector(`button[data-category="${category}"]`);
-          if (score !== null) {
-            cell.textContent = score; // Wypełniona kategoria
-            button.disabled = true; // Wyłącz przycisk, jeśli kategoria jest już wypełniona
-          } else {
-            const previewScore = msg.scorePreview[category];
-            cell.textContent = `(${previewScore})`; // Podgląd punktów
-            button.disabled = false; // Włącz przycisk, jeśli kategoria jest dostępna
-          }
-        });
-
+        renderGame(msg.state, msg.scorePreview);
         // Zapisz stan gry w sessionStorage
         sessionStorage.setItem('gameState', JSON.stringify({
           dice: msg.state.dice,
@@ -207,8 +189,6 @@ ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent
           scorecard: msg.state.scorecard,
           players: msg.state.players,
         }));
-
-        gameInfo.style.display = '';
         break;
 
       case 'gameOver':
