@@ -92,11 +92,11 @@ app.get('/create-room', (req, res) => {
 
 
 wss.on('connection', (ws, req) => {
-  const url        = new URL(req.url, `http://${req.headers.host}`);
-  const roomName   = url.searchParams.get('room');
-  const playerName = url.searchParams.get('name')?.trim();
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const roomName = url.searchParams.get('room');
   const incomingId = url.searchParams.get('id');
-  const room       = rooms.get(roomName);
+  const playerName = url.searchParams.get('name')?.trim();
+  const room = rooms.get(roomName);
 
   // 1️⃣ Pokój musi istnieć
   if (!room) {
@@ -104,70 +104,152 @@ wss.on('connection', (ws, req) => {
     return;
   }
 
-  // 2️⃣ Faza gry: tylko reconnect istniejących graczy
-  if (room.state.phase === 'playing') {
-    console.log(`[WS Connect] Faza 'playing'. Próba reconnectu dla ID: ${incomingId}`);
+  // ── 1) ZAREJESTRUJ HANDLERY ZAWSZE ──────────────────────────────────────
+  ws.on('message', data => {
+    const msg = JSON.parse(data);
+    const state = room.state;
+    const currentPlayer = state.players[state.currentTurn];
 
-    // Znajdź gracza w stanie gry po ID, żeby przypisać poprawne imię do obiektu ws
-    const player = room.state.players.find(p => p.id === incomingId);
-    if (!player) {
-         console.warn(`[WS Connect] Reconnecting player ID ${incomingId} not found in state.players. Closing connection.`);
-         ws.send(JSON.stringify({ type: 'error', message: 'Nie rozpoznano gracza w tej grze.' }));
-         ws.close();
-         return;
+    // START GRY
+    if (msg.type === 'start' && ws.playerId === room.hostId && state.phase === 'lobby') {
+      state.phase = 'playing';
+      broadcastToRoom(roomName, { type: 'gameStart', state });
+      return;
     }
 
-    // ### KLUCZOWE LINIE: Dodaj WS z powrotem do listy aktywnych klientów ###
+    // RZUCANIE KOŚCI
+    if (msg.type === 'rollDice') {
+      if (ws.playerId !== currentPlayer.id) {
+        ws.send(JSON.stringify({ type: 'error', message: 'To nie jest Twoja tura!' }));
+        return;
+      }
+      try {
+        rollDice(state);
+        const preview = generateScorePreview(state.dice);
+        broadcastToRoom(roomName, { type: 'update', state, scorePreview: preview });
+      } catch (err) {
+        ws.send(JSON.stringify({ type: 'error', message: err.message }));
+      }
+      return;
+    }
+
+    // BLOKOWANIE KOŚCI
+    if (msg.type === 'toggleLock') {
+      try {
+        toggleLock(state, msg.index);
+        const preview = generateScorePreview(state.dice);
+        broadcastToRoom(roomName, { type: 'update', state, scorePreview: preview });
+      } catch (err) {
+        ws.send(JSON.stringify({ type: 'error', message: err.message }));
+      }
+      return;
+    }
+
+    // ZAKOŃCZENIE TURY
+    if (msg.type === 'endTurn') {
+      endTurn(state);
+      const preview = generateScorePreview(state.dice);
+      broadcastToRoom(roomName, { type: 'update', state, scorePreview: preview });
+      return;
+    }
+
+    // WYBÓR KATEGORII
+    if (msg.type === 'selectCategory') {
+      const { category } = msg;
+      if (ws.playerId !== currentPlayer.id) {
+        ws.send(JSON.stringify({ type: 'error', message: 'To nie jest Twoja tura!' }));
+        return;
+      }
+      if (state.scorecard[ws.playerId][category] !== null) {
+        ws.send(JSON.stringify({ type: 'error', message: 'Category already filled' }));
+        return;
+      }
+      // policz punkty i zmień turę
+      state.scorecard[ws.playerId][category] = calculateScore(state.dice, category);
+      endTurn(state);
+      // sprawdź koniec gry
+      const allFilled = Object.values(state.scorecard)
+        .every(scores => Object.values(scores).every(s => s !== null));
+      if (allFilled) {
+        state.phase = 'finished';
+        broadcastToRoom(roomName, { type: 'gameOver', scorecard: state.scorecard });
+      } else {
+        const preview = generateScorePreview(state.dice);
+        broadcastToRoom(roomName, { type: 'update', state, scorePreview: preview });
+      }
+      return;
+    }
+  });
+
+  ws.on('close', () => {
+    room.clients.delete(ws);
+    if (room.state.phase === 'lobby') {
+      // usuwanie gracza z lobby i ewentualna zmiana hosta...
+      room.state.players = room.state.players.filter(p => p.id !== ws.playerId);
+      if (ws.playerId === room.hostId) {
+        if (room.clients.size > 0) {
+          const newHost = room.state.players[0];
+          room.hostId = newHost.id;
+          room.hostName = newHost.name;
+          broadcastToRoom(roomName, {
+            type: 'hostChanged',
+            hostId: room.hostId,
+            hostName: room.hostName,
+            players: room.state.players
+          });
+        } else {
+          rooms.delete(roomName);
+        }
+      } else {
+        broadcastToRoom(roomName, {
+          type: 'lobbyUpdate',
+          players: room.state.players,
+          hostId: room.hostId,
+          hostName: room.hostName
+        });
+      }
+    }
+  });
+  // ── HANDLERY PODPIĘTE ────────────────────────────────────────────────────
+
+  // teraz możesz bezpiecznie robić reconnect vs. new player:
+
+  // 2) RECONNECT
+  if (room.state.phase === 'playing') {
+    const player = room.state.players.find(p => p.id === incomingId);
+    if (!player) {
+      ws.send(JSON.stringify({ type: 'error', message: 'Nie rozpoznano gracza.' }));
+      return ws.close();
+    }
     room.clients.add(ws);
     ws.playerId = incomingId;
-    ws.playerName = player.name; // Przypisz imię z istniejącego stanu gracza
-    console.log(`[WS Connect] Pomyślnie zreconnectowano gracza <span class="math-inline">\{ws\.playerName\} \(</span>{ws.playerId}).`);
-    // ####################################################################
-
-
-    const scorePreview = generateScorePreview(room.state.dice);
+    ws.playerName = player.name;
     sendJSON(ws, {
       type: 'reconnect',
       state: room.state,
-      scorePreview
+      scorePreview: generateScorePreview(room.state.dice)
     });
-    console.log('[WS Connect] Wysłano wiadomość "reconnect"');
-
-    // Usunięcie starego obiektu WS dla tego gracza, jeśli był jakiś poprzedni
-    // (bardziej zaawansowana obsługa, ale warto o tym pomyśleć przy reconnectach -
-    // upewnij się, że stary obiekt WS powiązany z tym ID gracza jest usuwany/zamykany)
-    // Na razie sama ta linia room.clients.add(ws) może wystarczyć w większości przypadków,
-    // zakładając, że poprzednie połączenie zostało już zerwane/usunięte.
-
-
-    // Nie wychodzimy tutaj z funkcji return, bo klient jest teraz częścią room.clients
-    // i będzie otrzymywał dalsze wiadomości przez broadcastToRoom.
-    // return; <-- NIE DODAJEMY return, chyba że chcemy zakończyć obsługę tego połączenia po reconnectcie, co jest niepożądane.
-
-    // ... Możesz tutaj ewentualnie wysłać też lobbyUpdate lub gameStart,
-    // żeby upewnić się, że klient ma wszystkie potrzebne dane startowe,
-    // choć reconnect powinno wystarczyć do renderowania gry ...
-
+    return;
   }
 
-  // 3️⃣ Faza lobby: nowy gracz
+  // 3) NOWY GRACZ W LOBBY
   if (!playerName) {
     ws.close();
     return;
   }
+
   const playerId = generateUniqueId();
   room.clients.add(ws);
-  ws.playerId   = playerId;
+  ws.playerId = playerId;
   ws.playerName = playerName;
-  ws.roomName   = roomName;
 
-  // jeśli pierwszy, ustaw hosta
+  // Jeśli pierwszy gracz, ustaw hosta
   if (!room.hostId) {
-    room.hostId   = playerId;
+    room.hostId = playerId;
     room.hostName = playerName;
   }
 
-  // dopisz do listy i scorecard
+  // Dodaj gracza do stanu gry
   room.state.players.push({ id: playerId, name: playerName });
   room.state.scorecard[playerId] = {
     ones: null,
@@ -182,145 +264,27 @@ wss.on('connection', (ws, req) => {
     smallStraight: null,
     largeStraight: null,
     yahtzee: null,
-    chance: null,
+    chance: null
   };
 
-  // potwierdź dołączanie + powiadom wszystkich
+  // Wyślij potwierdzenie dołączenia
   sendJSON(ws, {
-    type:     'joined',
+    type: 'joined',
     playerId,
-    players:  room.state.players,
-    hostId:   room.hostId,
+    players: room.state.players,
+    hostId: room.hostId,
     hostName: room.hostName
   });
+
+  // Powiadom wszystkich w pokoju o nowym graczu
   broadcastToRoom(roomName, {
-    type:     'lobbyUpdate',
-    players:  room.state.players,
-    hostId:   room.hostId,
+    type: 'lobbyUpdate',
+    players: room.state.players,
+    hostId: room.hostId,
     hostName: room.hostName
   });
 
-  // 4️⃣ Obsługa start gry
-  ws.on('message', data => {
-    const msg = JSON.parse(data);
-    if (msg.type === 'start' && ws.playerId === room.hostId) {
-      room.state.phase = 'playing';
-      broadcastToRoom(roomName, { type: 'gameStart', state: room.state });
-    }
-  });
-
-  // 6️⃣ Obsługa akcji w grze
-  ws.on('message', data => {
-    const msg = JSON.parse(data);
-    const state = room.state;
-
-    // Zdefiniuj currentPlayer raz na początku
-    const currentPlayer = state.players[state.currentTurn];
-
-    switch (msg.type) {
-      case 'rollDice':
-        if (ws.playerId !== currentPlayer.id) {
-          ws.send(JSON.stringify({ type: 'error', message: 'To nie jest Twoja tura!' }));
-          return;
-        }
-        try {
-          rollDice(state);
-          const scorePreview = generateScorePreview(state.dice);
-          broadcastToRoom(roomName, { type: 'update', state, scorePreview });
-          console.log('Wysłano update:', { state, scorePreview });
-        } catch (err) {
-          ws.send(JSON.stringify({ type: 'error', message: err.message }));
-        }
-        break;
-
-      case 'toggleLock':
-        try {
-          toggleLock(state, msg.index);
-          const scorePreview = generateScorePreview(state.dice);
-          broadcastToRoom(roomName, { type: 'update', state, scorePreview });
-          console.log('Wysłano update:', { state, scorePreview });
-        } catch (err) {
-          ws.send(JSON.stringify({ type: 'error', message: err.message }));
-        }
-        break;
-
-      case 'endTurn':
-        endTurn(state);
-        const scorePreview = generateScorePreview(state.dice);
-        broadcastToRoom(roomName, { type: 'update', state, scorePreview });
-        console.log('Wysłano update:', { state, scorePreview });
-        break;
-
-      case 'selectCategory':
-        const { category } = msg;
-
-        if (ws.playerId !== currentPlayer.id) {
-          ws.send(JSON.stringify({ type: 'error', message: 'To nie jest Twoja tura!' }));
-          return;
-        }
-
-        if (state.scorecard[ws.playerId][category] !== null) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Category already filled' }));
-          return;
-        }
-
-        const score = calculateScore(state.dice, category);
-        state.scorecard[ws.playerId][category] = score;
-
-        endTurn(state);
-
-        const allFilled = Object.values(state.scorecard).every(playerScores =>
-          Object.values(playerScores).every(score => score !== null)
-        );
-
-        if (allFilled) {
-          state.phase = 'finished';
-          broadcastToRoom(roomName, { type: 'gameOver', scorecard: state.scorecard });
-        } else {
-          const scorePreview = generateScorePreview(state.dice); // Dodaj generowanie scorePreview
-          broadcastToRoom(roomName, {
-            type: 'update',
-            state,
-            scorePreview // Dołącz scorePreview do komunikatu
-          });
-        }
-        break;
-    }
-  });
-
-  // 5️⃣ Obsługa rozłączenia
-  ws.on('close', () => {
-    room.clients.delete(ws);
-    // usuń z listy tylko w lobby
-    if (room.state.phase === 'lobby') {
-      room.state.players = room.state.players.filter(p => p.id !== ws.playerId);
-      // obsłuż zmianę hosta lub zamknięcie pokoju, jak dotąd
-      if (ws.playerId === room.hostId) {
-        if (room.clients.size > 0) {
-          const newHost = room.state.players[0];
-          room.hostId   = newHost.id;
-          room.hostName = newHost.name;
-          broadcastToRoom(roomName, {
-            type:     'hostChanged',
-            hostId:   room.hostId,
-            hostName: room.hostName,
-            players:  room.state.players
-          });
-        } else {
-          rooms.delete(roomName);
-        }
-      } else {
-        broadcastToRoom(roomName, {
-          type:    'lobbyUpdate',
-          players: room.state.players,
-          hostId:   room.hostId,
-          hostName: room.hostName
-        });
-      }
-    }
-    // w fazie gry połączenie dropnięte – nie usuwamy z players[], więc przy reconnect 
-    // da się wrócić do rozgrywki
-  });
+  console.log(`[WS Connect] Gracz ${playerName} (${playerId}) dołączył do pokoju ${roomName}`);
 });
 
 function calculateScore(dice, category) {

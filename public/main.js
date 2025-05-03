@@ -25,6 +25,8 @@ const playersList = document.getElementById('playersList');
 const startBtn    = document.getElementById('startGame');
 const cancelBtn   = document.getElementById('cancel');
 const loadingDiv  = document.getElementById('loading');
+const gameInfo    = document.getElementById('gameInfo');
+
 
 // ukrywamy lobby i canvas dopóki nie połączymy
 lobbyDiv.style.display   = 'none';
@@ -176,7 +178,7 @@ ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent
       
       case 'reconnect':
         console.log('Handler reconnect: Próbuję renderować grę...'); // Nowy log
-        renderGame(msg.state, msg.scorePreview);
+        document.getElementById('playerNameDisplay').textContent = playerName;
         console.log('Handler reconnect: Renderowanie zakończono. WS State:',ws.readyState); // Nowy log
         renderGame(msg.state,  msg.scorePreview);
         break;
