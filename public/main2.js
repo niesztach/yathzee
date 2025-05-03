@@ -175,23 +175,20 @@ ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent
         break;
       
       case 'reconnect':
-        console.log('Handler reconnect: Próbuję renderować grę...'); // Nowy log
-        renderGame(msg.state, msg.scorePreview);
-        console.log('Handler reconnect: Renderowanie zakończono. WS State:',ws.readyState); // Nowy log
         renderGame(msg.state,  msg.scorePreview);
         break;
      
       case 'update':
         renderGame(msg.state, msg.scorePreview);
         // Zapisz stan gry w sessionStorage
-        // sessionStorage.setItem('gameState', JSON.stringify({
-        //   dice: msg.state.dice,
-        //   locked: msg.state.locked,
-        //   currentTurn: msg.state.currentTurn,
-        //   rollsLeft: msg.state.rollsLeft,
-        //   scorecard: msg.state.scorecard,
-        //   players: msg.state.players,
-        // }));
+        sessionStorage.setItem('gameState', JSON.stringify({
+          dice: msg.state.dice,
+          locked: msg.state.locked,
+          currentTurn: msg.state.currentTurn,
+          rollsLeft: msg.state.rollsLeft,
+          scorecard: msg.state.scorecard,
+          players: msg.state.players,
+        }));
         break;
 
       case 'gameOver':
@@ -206,36 +203,31 @@ ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent
     }
   };
 
-ws.onerror = (error) => {
-  console.error("WebSocket napotkał błąd:", error); // Zobaczymy szczegóły błędu
-};
+  ws.onclose = () => {
+    if (isReloading) {
+      // odświeżenie strony — nic nie robimy, sessionStorage zostaje
+      return;
+    }
+  
+    if (!isReloading && !userInitiatedClose) {
+      //alert('Gra już się rozpoczęła, taki pokój nie istnieje bądź został usunięty – dołączanie jest zablokowane.');
+      showSetup();
+      errDiv.style.display = '';
+    }
 
-ws.onclose = (event) => {
-  // Sprawdź kody zamknięcia: https://developer.mozilla.org/en-US/docs/Web/API/CloseEvent
-  console.log("WebSocket został zamknięty. Kod:", event.code, "Powód:", event.reason, "Było czyste:", event.wasClean);
-
-  if (isReloading) {
-     console.log("WebSocket zamknięty z powodu odświeżenia.");
-     return;
-  }
-
-  // Poniższa logika wymaga dopracowania w zależności od Twoich potrzeb
-  // i od tego, co znaczy userInitiatedClose w Twoim kodzie
-  if (!event.wasClean && event.code !== 1006) { // 1006 to błąd połączenia (np. serwer padł)
-     alert(`Połączenie z grą zostało przerwane (Kod: ${event.code}). Sprawdź konsolę po szczegóły.`);
-  }
-
-
-  if (!userInitiatedClose) {
-     showSetup(); // Pokaż ekran setup
-     errDiv.style.display = ''; // Pokaż div z błędem (jeśli taki masz)
-     // Możesz ustawić tekst błędu np. "Utracono połączenie z grą."
-  } else {
-     // Jeśli zamknął celowo (np. przycisk wyjścia z lobby)
-     sessionStorage.clear(); // Czyść storage tylko przy celowym wyjściu
-     showSetup();
-  }
-};
+    // ### dlaczego to się odpala? ###
+    if (userInitiatedClose) {
+      // kliknięcie “Anuluj” → wyjście z lobby
+      sessionStorage.setItem('phase', 'lobby');
+      sessionStorage.clear();
+      showSetup();
+    } else {
+      // awaria połączenia → komunikat i powrót do setup
+      // alert('Nie udało się połączyć z serwerem/pokojem.');
+      sessionStorage.clear();
+      showSetup();
+    }
+  };  
 }
 
 // ====== AKTUALIZACJA LOBBY ======

@@ -9,8 +9,8 @@ const wss    = new WebSocket.Server({ server });
 // Serwuj pliki klienta (index.html + JS + assets)
 app.use(express.static('public'));
 
-server.listen(1234, () => {
-  console.log('Serwer HTTP + WS działa na porcie 1234');
+server.listen(2223, () => {
+  console.log('Serwer HTTP + WS działa na porcie 2222');
 });
 
 
@@ -106,48 +106,14 @@ wss.on('connection', (ws, req) => {
 
   // 2️⃣ Faza gry: tylko reconnect istniejących graczy
   if (room.state.phase === 'playing') {
-    console.log(`[WS Connect] Faza 'playing'. Próba reconnectu dla ID: ${incomingId}`);
-
-    // Znajdź gracza w stanie gry po ID, żeby przypisać poprawne imię do obiektu ws
-    const player = room.state.players.find(p => p.id === incomingId);
-    if (!player) {
-         console.warn(`[WS Connect] Reconnecting player ID ${incomingId} not found in state.players. Closing connection.`);
-         ws.send(JSON.stringify({ type: 'error', message: 'Nie rozpoznano gracza w tej grze.' }));
-         ws.close();
-         return;
-    }
-
-    // ### KLUCZOWE LINIE: Dodaj WS z powrotem do listy aktywnych klientów ###
-    room.clients.add(ws);
-    ws.playerId = incomingId;
-    ws.playerName = player.name; // Przypisz imię z istniejącego stanu gracza
-    console.log(`[WS Connect] Pomyślnie zreconnectowano gracza <span class="math-inline">\{ws\.playerName\} \(</span>{ws.playerId}).`);
-    // ####################################################################
-
-
-    const scorePreview = generateScorePreview(room.state.dice);
+    const scorePreview = generateScorePreview(room.state.dice); // Generuj podgląd punktów
     sendJSON(ws, {
       type: 'reconnect',
       state: room.state,
-      scorePreview
+      scorePreview // Dołącz podgląd punktów
     });
-    console.log('[WS Connect] Wysłano wiadomość "reconnect"');
-
-    // Usunięcie starego obiektu WS dla tego gracza, jeśli był jakiś poprzedni
-    // (bardziej zaawansowana obsługa, ale warto o tym pomyśleć przy reconnectach -
-    // upewnij się, że stary obiekt WS powiązany z tym ID gracza jest usuwany/zamykany)
-    // Na razie sama ta linia room.clients.add(ws) może wystarczyć w większości przypadków,
-    // zakładając, że poprzednie połączenie zostało już zerwane/usunięte.
-
-
-    // Nie wychodzimy tutaj z funkcji return, bo klient jest teraz częścią room.clients
-    // i będzie otrzymywał dalsze wiadomości przez broadcastToRoom.
-    // return; <-- NIE DODAJEMY return, chyba że chcemy zakończyć obsługę tego połączenia po reconnectcie, co jest niepożądane.
-
-    // ... Możesz tutaj ewentualnie wysłać też lobbyUpdate lub gameStart,
-    // żeby upewnić się, że klient ma wszystkie potrzebne dane startowe,
-    // choć reconnect powinno wystarczyć do renderowania gry ...
-
+    console.log('Wysłano reconnect:', { state: room.state, scorePreview });
+    return;
   }
 
   // 3️⃣ Faza lobby: nowy gracz
