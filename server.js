@@ -135,6 +135,11 @@ wss.on('connection', (ws, req) => {
 
     // BLOKOWANIE KOŚCI
     if (msg.type === 'toggleLock') {
+
+      if (state.dice.includes(0)) {
+        ws.send(JSON.stringify({ type: 'error', message: 'Nie można blokować kości przed rzutem!' }));
+        return;
+      }
       try {
         toggleLock(state, msg.index);
         const preview = generateScorePreview(state.dice);
@@ -160,12 +165,13 @@ wss.on('connection', (ws, req) => {
         ws.send(JSON.stringify({ type: 'error', message: 'To nie jest Twoja tura!' }));
         return;
       }
-      if (state.scorecard[ws.playerId][category] !== null) {
-        ws.send(JSON.stringify({ type: 'error', message: 'Category already filled' }));
+      if ((state.scorecard[ws.playerId][category] !== null)||state.dice.includes(0)) {
+        ws.send(JSON.stringify({ type: 'error', message: 'Błąd - kategoria jest już zajęta lub kości nie zostały rzucone!' }));
         return;
       }
       // policz punkty i zmień turę
       state.scorecard[ws.playerId][category] = calculateScore(state.dice, category);
+      state.dice = [0, 0, 0, 0, 0]; // reset kostek
       endTurn(state);
       // sprawdź koniec gry
       const allFilled = Object.values(state.scorecard)
@@ -291,6 +297,20 @@ function calculateScore(dice, category) {
   const counts = Array(7).fill(0); // Licznik dla wartości od 1 do 6
   dice.forEach(d => counts[d]++);
 
+  // Posortuj kostki i usuń duplikaty
+  const sortedDice = [...new Set(dice)].sort((a, b) => a - b);
+
+  // Możliwe sekwencje dla stritów
+  const smallStraights = [
+    [1, 2, 3, 4],
+    [2, 3, 4, 5],
+    [3, 4, 5, 6]
+  ];
+  const largeStraights = [
+    [1, 2, 3, 4, 5],
+    [2, 3, 4, 5, 6]
+  ];
+
   switch (category) {
     case 'ones': return counts[1] * 1;
     case 'twos': return counts[2] * 2;
@@ -301,9 +321,12 @@ function calculateScore(dice, category) {
     case 'threeOfAKind': return counts.some(c => c >= 3) ? dice.reduce((a, b) => a + b, 0) : 0;
     case 'fourOfAKind': return counts.some(c => c >= 4) ? dice.reduce((a, b) => a + b, 0) : 0;
     case 'fullHouse': return counts.includes(3) && counts.includes(2) ? 25 : 0;
-    case 'smallStraight': return [1, 1, 1, 1].every((v, i) => counts.slice(i + 1, i + 5).includes(v)) ? 30 : 0;
-    case 'largeStraight': return [1, 1, 1, 1, 1].every((v, i) => counts.slice(i + 1, i + 6).includes(v)) ? 40 : 0;
-    case 'yahtzee': return counts.some(c => c === 5) ? 50 : 0;
+    case 'smallStraight':
+      return smallStraights.some(straight => straight.every(num => sortedDice.includes(num))) ? 30 : 0;
+    case 'largeStraight':
+      return largeStraights.some(straight => straight.every(num => sortedDice.includes(num))) ? 40 : 0;
+    case 'yahtzee': 
+      return counts.some(c => c === 5) && !dice.includes(0) ? 50 : 0;
     case 'chance': return dice.reduce((a, b) => a + b, 0);
     default: return 0;
   }
