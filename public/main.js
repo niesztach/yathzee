@@ -122,7 +122,7 @@ function renderGame(state, scorePreview) {
   }, 0);
   // if (upperSectionScore >= 63) {
 
-  // do dodania funkcja ktora sprawdzi czy jest 63 (w formie x /63) i nie bedzie pokazywac jezeli przekroczono /  pokaze checkmarka
+  // do dodania funkcja ktora sprawdzi czy jest 63 (w formie x /63) i nie bedzie pokazywac jezeli przekroczono /  
 
   // document.getElementById('pointsTo63').textContent = `Brakuje do 63: ${pointsTo63}`;
 
@@ -206,14 +206,14 @@ ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent
       case 'update':
         renderGame(msg.state, msg.scorePreview);
         // Zapisz stan gry w sessionStorage
-        // sessionStorage.setItem('gameState', JSON.stringify({
-        //   dice: msg.state.dice,
-        //   locked: msg.state.locked,
-        //   currentTurn: msg.state.currentTurn,
-        //   rollsLeft: msg.state.rollsLeft,
-        //   scorecard: msg.state.scorecard,
-        //   players: msg.state.players,
-        // }));
+        sessionStorage.setItem('gameState', JSON.stringify({
+          dice: msg.state.dice,
+          locked: msg.state.locked,
+          currentTurn: msg.state.currentTurn,
+          rollsLeft: msg.state.rollsLeft,
+          scorecard: msg.state.scorecard,
+          players: msg.state.players,
+        }));
         break;
 
       case 'gameOver':
@@ -346,4 +346,13 @@ document.getElementById('scoreRows').addEventListener('click', (event) => {
   const category = button.dataset.category;
   ws.send(JSON.stringify({ type: 'selectCategory', category }));
 });
+
+document.getElementById('scoreRows2').addEventListener('click', (event) => {
+  const button = event.target.closest('button.acceptBtn');
+  if (!button) return;
+
+  const category = button.dataset.category;
+  ws.send(JSON.stringify({ type: 'selectCategory', category }));
+});
+
 
