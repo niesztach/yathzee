@@ -125,7 +125,7 @@ wss.on('connection', (ws, req) => {
       }
       try {
         rollDice(state);
-        const preview = generateScorePreview(state.dice);
+const preview = generateScorePreview(state.dice, state.scorecard[ws.playerId]);
         broadcastToRoom(roomName, { type: 'update', state, scorePreview: preview });
       } catch (err) {
         ws.send(JSON.stringify({ type: 'error', message: err.message }));
@@ -142,7 +142,7 @@ wss.on('connection', (ws, req) => {
       }
       try {
         toggleLock(state, msg.index);
-        const preview = generateScorePreview(state.dice);
+const preview = generateScorePreview(state.dice, state.scorecard[ws.playerId]);
         broadcastToRoom(roomName, { type: 'update', state, scorePreview: preview });
       } catch (err) {
         ws.send(JSON.stringify({ type: 'error', message: err.message }));
@@ -180,7 +180,7 @@ wss.on('connection', (ws, req) => {
         state.phase = 'finished';
         broadcastToRoom(roomName, { type: 'gameOver', scorecard: state.scorecard });
       } else {
-        const preview = generateScorePreview(state.dice);
+const preview = generateScorePreview(state.dice, state.scorecard[ws.playerId]);
         broadcastToRoom(roomName, { type: 'update', state, scorePreview: preview });
       }
       return;
@@ -332,15 +332,29 @@ function calculateScore(dice, category) {
   }
 }
 
-function generateScorePreview(dice) {
+function generateScorePreview(dice, scorecard ={}) {
   const categories = [
     'ones', 'twos', 'threes', 'fours', 'fives', 'sixes',
     'threeOfAKind', 'fourOfAKind', 'fullHouse',
     'smallStraight', 'largeStraight', 'yahtzee', 'chance'
   ];
   const preview = {};
+
+  // Oblicz punkty dla każdej kategorii
   categories.forEach(category => {
     preview[category] = calculateScore(dice, category);
   });
+
+  // Oblicz bonus
+  const upperSectionCategories = ['ones', 'twos', 'threes', 'fours', 'fives', 'sixes'];
+  const upperSectionScore = upperSectionCategories.reduce((sum, category) => {
+    return sum + (scorecard[category] || 0); // Dodaj istniejące punkty z scorecard
+  }, 0);
+  preview['bonus'] = upperSectionScore >= 63 ? 35 : 0;
+
+    // Zamiast sumować wartości potencjalne, sumujemy to, co już ma gracz
+    const actualScore = Object.values(scorecard).reduce((sum, pts) => sum + (pts || 0), 0);
+    preview.total = actualScore + preview.bonus;
+
   return preview;
 }

@@ -1,0 +1,88 @@
+/* reset i font */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  body {
+    font-family: sans-serif;
+    padding: 1rem;
+  }
+  .hidden {
+    display: none;
+  }
+  
+  /* Błędy i nagłówki */
+  .error-text {
+    color: red;
+    margin-bottom: 1rem;
+  }
+  
+  /* Ogólne style przycisków */
+  button {
+    padding: 0.5rem 1rem;
+    margin: 0.25rem;
+    border: 1px solid #666;
+    background: #fff;
+    cursor: pointer;
+  }
+  button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  
+  /* -------------------------------------------------
+     STYLE DLA DWIÓCH TABEL OBOK SIEBIE
+     ------------------------------------------------- */
+  #scoreTables {
+    display: flex;
+    gap: 2rem;
+    margin: 1.5rem 0;
+  }
+  
+  /* Wspólne style tabel */
+  .score-table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 200px;
+  }
+  .score-table th,
+  .score-table td {
+    border: 1px solid #ccc;
+    padding: 0.5rem;
+    text-align: center;
+  }
+  .score-table tbody tr:nth-child(odd) {
+    background: #f9f9f9;
+  }
+  
+  /* Górna tabela */
+  .score-table.upper th {
+    background: #e0f7fa;
+    font-weight: normal;
+  }
+  .score-table.upper .bonus-cell {
+    vertical-align: top;
+    text-align: left;
+    padding: 0.75rem;
+    font-size: 0.9rem;
+  }
+  
+  /* Dolna tabela */
+  .score-table.lower th {
+    background: #ffe0b2;
+    font-weight: normal;
+  }
+  .score-table.lower .total-row td {
+    border-top: 2px solid #333;
+    font-weight: bold;
+    padding-top: 1rem;
+  }
+  
+  /* Linia pod tabelami */
+  .divider {
+    border: none;
+    border-top: 2px solid #333;
+    margin: 0.5rem 0;
+  }
+  

@@ -106,7 +106,27 @@ function renderGame(state, scorePreview) {
       button.disabled = false;
     }
   });
-  // 4) pokaż planszę i infopanel
+
+  // 4) Wypełnij bonus
+  const bonusCell = document.getElementById('bonus');
+  bonusCell.textContent = scorePreview['bonus'];
+
+  // 5) Wypełnij łączną sumę
+  const totalCell = document.getElementById('total');
+  totalCell.textContent = scorePreview['total'];
+
+  // 6) Oblicz i wyświetl, ile brakuje do 63
+  const upperSectionCategories = ['ones', 'twos', 'threes', 'fours', 'fives', 'sixes'];
+  const upperSectionScore = upperSectionCategories.reduce((sum, category) => {
+    return sum + (state.scorecard[playerId][category] || 0);
+  }, 0);
+  // if (upperSectionScore >= 63) {
+
+  // do dodania funkcja ktora sprawdzi czy jest 63 (w formie x /63) i nie bedzie pokazywac jezeli przekroczono /  pokaze checkmarka
+
+  // document.getElementById('pointsTo63').textContent = `Brakuje do 63: ${pointsTo63}`;
+
+  // 6) Pokaż planszę i infopanel
   setupDiv.style.display = 'none';
   lobbyDiv.style.display = 'none';
   gameCanvas.style.display = '';
