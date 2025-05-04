@@ -1,88 +1,105 @@
-/* reset i font */
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-  }
-  body {
-    font-family: sans-serif;
-    padding: 1rem;
-  }
-  .hidden {
-    display: none;
-  }
-  
-  /* Błędy i nagłówki */
-  .error-text {
-    color: red;
-    margin-bottom: 1rem;
-  }
-  
-  /* Ogólne style przycisków */
-  button {
-    padding: 0.5rem 1rem;
-    margin: 0.25rem;
-    border: 1px solid #666;
-    background: #fff;
-    cursor: pointer;
-  }
-  button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  
-  /* -------------------------------------------------
-     STYLE DLA DWIÓCH TABEL OBOK SIEBIE
-     ------------------------------------------------- */
-  #scoreTables {
-    display: flex;
-    gap: 2rem;
-    margin: 1.5rem 0;
-  }
-  
-  /* Wspólne style tabel */
-  .score-table {
-    border-collapse: collapse;
-    width: 100%;
-    min-width: 200px;
-  }
-  .score-table th,
-  .score-table td {
-    border: 1px solid #ccc;
-    padding: 0.5rem;
-    text-align: center;
-  }
-  .score-table tbody tr:nth-child(odd) {
-    background: #f9f9f9;
-  }
-  
-  /* Górna tabela */
-  .score-table.upper th {
-    background: #e0f7fa;
-    font-weight: normal;
-  }
-  .score-table.upper .bonus-cell {
-    vertical-align: top;
-    text-align: left;
-    padding: 0.75rem;
-    font-size: 0.9rem;
-  }
-  
-  /* Dolna tabela */
-  .score-table.lower th {
-    background: #ffe0b2;
-    font-weight: normal;
-  }
-  .score-table.lower .total-row td {
-    border-top: 2px solid #333;
+#scoreBoard {
+  width: 30%;            /* wypełnia miejsce rodzica */
+  table-layout: fixed;    /* 固定布局 = równe kolumny */
+  border-collapse: collapse;
+}
+
+#scoreBoard th,
+#scoreBoard td {
+  padding: 8px;           /* wewnętrzny odstęp */
+  text-align: center;     /* wyśrodkuj treść */
+  border: 1px solid #ccc;
+}
+
+.preview-badge {
+    display: inline-block;
+    font-size: 0.9em;
     font-weight: bold;
-    padding-top: 1rem;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #ffe57f, #ffd740);
+    color: #5d4037;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    transform: translateY(0);
+    transition: transform 0.2s;
   }
+  /* lekko „podskoczy” przy hover nad przyciskiem */
+  .preview-container:hover .preview-badge {
+    transform: translateY(-2px);
+  }
+
   
-  /* Linia pod tabelami */
-  .divider {
+  .acceptBtn {
     border: none;
-    border-top: 2px solid #333;
-    margin: 0.5rem 0;
+    background: linear-gradient(135deg, #66bb6a, #43a047);
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+
+  .acceptBtn svg {
+    width: 14px; height: 14px;
+    fill: white;
+  }
+  .acceptBtn:hover {
+    transform: scale(1.1);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+  }
+  .acceptBtn:active {
+    transform: scale(0.95);
   }
   
+  .acceptBtn:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  
+  @keyframes flash {
+    0%   { background-color: #e8f5e9; }
+    50%  { background-color: #a5d6a7; }
+    100% { background-color: transparent; }
+  }
+  
+  /* .preview-container.accepted {
+    animation: flash 0.6s ease-out;
+  }
+
+  
+  .preview-container {
+    position: relative;
+  }
+  .preview-container::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%; left: 50%;
+    transform: translateX(-50%) translateY(-6px);
+    background: rgba(0,0,0,0.75);
+    color: #fff;
+    padding: 4px 6px;
+    border-radius: 4px;
+    font-size: 0.75em;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  .preview-container:hover::after {
+    opacity: 1;
+  }
+   */
+
+   #gameOver { padding: 20px; text-align: center; font-family: sans-serif; }
+   #gameOver h2 { margin-bottom: 0.5em; }
+   #finalResults { margin: 0 auto; border-collapse: collapse; }
+   #finalResults th, #finalResults td {
+     border: 1px solid #ccc; padding: 6px 12px; text-align: center;
+   }
+   #finalResults thead th { background: #333; color: #fff; }
+   #finalResults tbody tr:nth-child(odd) { background: #f9f9f9; }

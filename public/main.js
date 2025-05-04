@@ -7,6 +7,9 @@ let isHost = false;
 let userInitiatedClose = false; //flaga do rozróżnienia zamknięcia połączenia przez użytkownika
 let players = [];
 let isReloading = false; // flaga do rozróżnienia zamknięcia połączenia przez użytkownika
+let isMyTurn = false;
+let lastState = null;
+
 
 // ====== ELEMENTY DOM ======
 const errDiv      =  document.getElementById('error');
@@ -26,6 +29,26 @@ const startBtn    = document.getElementById('startGame');
 const cancelBtn   = document.getElementById('cancel');
 const loadingDiv  = document.getElementById('loading');
 const gameInfo    = document.getElementById('gameInfo');
+
+//list kategorii i etykiety
+
+const categories = [
+  'ones','twos','threes','fours','fives','sixes', 'bonus',
+  'threeOfAKind','fourOfAKind','fullHouse',
+  'smallStraight','largeStraight','yahtzee','chance',
+  'total'
+];
+
+const categoryLabels = {
+  ones: 'Jedynki', twos: 'Dwójki', threes: 'Trójki',
+  fours: 'Czwórki', fives: 'Piątki', sixes: 'Szóstki',
+  threeOfAKind: 'Trójka', fourOfAKind: 'Czwórka',
+  fullHouse: 'Full', smallStraight: 'Mały strit',
+  largeStraight: 'Duży strit', yahtzee: 'Yahtzee',
+  chance: 'Szansa', bonus: 'Bonus',
+  total: 'Suma'
+};
+
 
 
 // ukrywamy lobby i canvas dopóki nie połączymy
@@ -68,10 +91,16 @@ window.addEventListener('load', () => {
 
 // ====== FUNKCJA POKAZUJĄCA LOBBY ======
 function showSetup() {
-  setupDiv.style.display = '';
-  lobbyDiv.style.display = 'none';
-  gameCanvas.style.display = 'none';
+  setupDiv.style.display    = '';
+  lobbyDiv.style.display    = 'none';
+  gameCanvas.style.display  = 'none';
+  gameInfo.style.display    = 'none';
+  document.getElementById('scoreTable').style.display = 'none';
+  // jeśli jest ekran gameOver, usuń go
+  const over = document.getElementById('gameOver');
+  if (over) over.remove();
 }
+
 
 // ====== RYSOWANIE KOSTEK ======
 function drawDice(dice, locked = [false, false, false, false, false]) {
@@ -87,39 +116,150 @@ function drawDice(dice, locked = [false, false, false, false, false]) {
   });
 }
 
+// ====== FUNKCJA RYSUJĄCA TABELĘ WYNIKOW ======
+
+function buildScoreBoard(state, scorePreview) {
+  const table  = document.getElementById('scoreBoard');
+  const theadR = table.querySelector('thead tr');
+  const tbody   = table.querySelector('tbody');
+  const upperSectionCategories = ['ones', 'twos', 'threes', 'fours', 'fives', 'sixes'];
+  const upperSectionScore = upperSectionCategories.reduce((sum, category) => {
+    return sum + (state.scorecard[playerId][category] || 0);
+  }, 0);
+
+  // 1) nagłówek: "Kategoria" + imiona
+  theadR.innerHTML = '<th>Kategoria</th>';
+  state.players.forEach(p => {
+    const th = document.createElement('th');
+    th.textContent = p.name + (p.id === playerId ? ' (Ty)' : '');
+    theadR.appendChild(th);
+  });
+
+  const currentPlayerId = state.players[state.currentTurn].id;
+  // flaga: czy to jestem ja
+  isMyTurn = (currentPlayerId === playerId);
+
+  // 2) ciało tabeli – po jednej linii na kategorię
+  tbody.innerHTML = '';
+  categories.forEach(cat => {
+    const tr = document.createElement('tr');
+    tr.dataset.category = cat;
+
+    // pierwsza kolumna: nazwa kategorii
+    const tdLabel = document.createElement('td');
+    tdLabel.textContent = categoryLabels[cat];
+    tr.appendChild(tdLabel);
+
+    // kolumny z punktami dla każdego gracza
+    state.players.forEach(p => {
+      const cell = document.createElement('td');
+      const cat  = tr.dataset.category;
+      const val  = state.scorecard[p.id][cat];
+    
+      // —————————————————————————————
+      //  SPECIAL: BONUS
+      // —————————————————————————————
+      if (cat === 'bonus') {
+        // najpierw policz sumę górnej sekcji
+        const upperScore = upperSectionCategories
+.reduce((sum, c) => sum + (state.scorecard[p.id][c] || 0), 0);
+    
+        // jeśli >=63, bonus = 35; inaczej 0 i pokaż progres
+        if (upperScore >= 63) {
+          cell.textContent = '35';
+        } else {
+          cell.textContent = `0 (${upperScore}/63)`;
+        }
+    
+        tr.appendChild(cell);
+        return;  // kończymy tutaj dla bonusu
+      }
+    
+      // —————————————————————————————
+      //  SPECIAL: TOTAL (jeśli chcesz inaczej, możesz tu wstawić swój kod)
+      // —————————————————————————————
+      if (cat === 'total') {
+        // 1) policz sumę wszystkich wypełnionych kategorii
+        const actualScore = Object
+          .values(state.scorecard[p.id])
+          .filter(v => typeof v === 'number')
+          .reduce((sum, v) => sum + v, 0);
+      
+        // 2) policz bonus (górna sekcja)
+        const upperSum = upperSectionCategories
+          .reduce((sum, c) => sum + (state.scorecard[p.id][c] || 0), 0);
+        const bonus = upperSum >= 63 ? 35 : 0;
+      
+        // 3) finalna suma = actualScore + bonus
+        const total = actualScore + bonus;
+      
+        cell.textContent = total;
+        tr.appendChild(cell);
+        return;
+      }
+    
+      // —————————————————————————————
+      //  RESZTA KATEGORII (preview + przycisk lub wartość przeciwnika)
+      // —————————————————————————————
+  // JEŚLI TO MÓJ GRACZ:
+  if (p.id === playerId) {
+    if (!isMyTurn) {
+      // nie moja tura – zero interakcji
+      cell.textContent = val != null ? val : '–';
+    } else {
+      // moja tura – pokaz preview + button
+      if (val != null) {
+        cell.textContent = val;
+      } else {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'preview-container';
+        // badge
+        const badge = document.createElement('span');
+        badge.className = 'preview-badge';
+        badge.textContent = `+${scorePreview[cat]}`;
+        // przycisk
+        const btn = document.createElement('button');
+        btn.className = 'acceptBtn';
+        btn.dataset.category = cat;
+        btn.disabled = false;
+        btn.innerHTML = '<svg>…</svg>';
+        wrapper.append(badge, btn);
+        cell.appendChild(wrapper);
+      }
+    }
+  }
+  // INACZEJ – przeciwnik
+  else {
+    cell.textContent = val != null ? val : '–';
+  }
+
+  tr.appendChild(cell);
+    });
+    
+    tbody.appendChild(tr);
+  });
+}
+
+
 // ====== RENDEROWANIE GRY ======
 function renderGame(state, scorePreview) {
+  lastState = state;
   // 1) rysuj kostki
   drawDice(state.dice, state.locked);
   // 2) wyświetl bieżącą turę i rzuty
   document.getElementById('roundDisplay').textContent = `Tura: ${state.players[state.currentTurn].name}`;
   document.getElementById('rollsLeft').textContent = `Rzuty: ${state.rollsLeft}`;
   // 3) wypełnij tabelę i steruj przyciskami
-  Object.entries(state.scorecard[playerId]).forEach(([cat, sc]) => {
-    const cell   = document.getElementById(cat);
-    const button = document.querySelector(`button[data-category="${cat}"]`);
-    if (sc !== null) {
-      cell.textContent = sc;
-      button.disabled = true;
-    } else {
-      cell.textContent = `(${scorePreview[cat]})`;
-      button.disabled = false;
-    }
-  });
+  buildScoreBoard(state, scorePreview);
+  document.getElementById('scoreTable').style.display = '';
 
-  // 4) Wypełnij bonus
-  const bonusCell = document.getElementById('bonus');
-  bonusCell.textContent = scorePreview['bonus'];
-
-  // 5) Wypełnij łączną sumę
-  const totalCell = document.getElementById('total');
-  totalCell.textContent = scorePreview['total'];
+  
 
   // 6) Oblicz i wyświetl, ile brakuje do 63
-  const upperSectionCategories = ['ones', 'twos', 'threes', 'fours', 'fives', 'sixes'];
-  const upperSectionScore = upperSectionCategories.reduce((sum, category) => {
-    return sum + (state.scorecard[playerId][category] || 0);
-  }, 0);
+  // const upperSectionCategories = ['ones', 'twos', 'threes', 'fours', 'fives', 'sixes'];
+  // const upperSectionScore = upperSectionCategories.reduce((sum, category) => {
+  //   return sum + (state.scorecard[playerId][category] || 0);
+  // }, 0);
   // if (upperSectionScore >= 63) {
 
   // do dodania funkcja ktora sprawdzi czy jest 63 (w formie x /63) i nie bedzie pokazywac jezeli przekroczono /  
@@ -186,15 +326,25 @@ ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent
         lobbyHostSp.textContent = msg.hostName;
         updateLobbyUI();
         break;
+
       case 'gameStart':
-        sessionStorage.setItem('phase', 'playing');
-        setupDiv.style.display = 'none'; // Ukryj setup
-        lobbyDiv.style.display = 'none';
-        gameCanvas.style.display = '';
-        gameInfo.style.display = '';
-        document.getElementById('scoreTable').style.display = ''; // Pokaż tabelę wyników
-        drawDice(msg.state.dice);
-        break;
+          sessionStorage.setItem('phase', 'playing');
+          // 1) Pokaż właściwe UI
+          setupDiv.style.display   = 'none';
+          lobbyDiv.style.display   = 'none';
+          gameCanvas.style.display = '';
+          gameInfo.style.display   = '';
+          document.getElementById('scoreTable').style.display = '';
+        
+          // 2) Zainicjuj rysowanie – kostki + tabela
+          //    nie czekamy na update, tylko od razu wywołujemy renderGame
+          //    z pustym preview (wszystkie kategorie 0), żeby zobaczyć tabelę
+          const emptyPreview = {};
+          categories.forEach(cat => {
+            if (cat !== 'bonus' && cat !== 'total') emptyPreview[cat] = 0;
+          });
+          renderGame(msg.state, emptyPreview);
+          break;
       
       case 'reconnect':
         console.log('Handler reconnect: Próbuję renderować grę...'); // Nowy log
@@ -216,11 +366,13 @@ ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent
         }));
         break;
 
-      case 'gameOver':
-        sessionStorage.setItem('phase', 'finished');
-        alert('Gra zakończona! Wyniki:');
-        console.log(msg.scorecard);
-        break;
+        case 'gameOver':
+          sessionStorage.setItem('phase', 'finished');
+          showGameOver(msg.scorecard);
+          ws.close();
+          sessionStorage.clear(); // Wyczyść sessionStorage po zakończeniu gry
+          showSetup(); // Pokaż ekran setup
+          break;        
 
       case 'error':
         alert(msg.message);
@@ -328,6 +480,7 @@ document.querySelectorAll('.die').forEach((die, index) => {
 });
 
 gameCanvas.addEventListener('click', (event) => {
+  if (!isMyTurn) return;   // <— zabrania toggle, gdy nie moja tura
   const rect = gameCanvas.getBoundingClientRect();
   const x = event.clientX - rect.left;
   const y = event.clientY - rect.top;
@@ -339,20 +492,68 @@ gameCanvas.addEventListener('click', (event) => {
   }
 });
 
-document.getElementById('scoreRows').addEventListener('click', (event) => {
-  const button = event.target.closest('button.acceptBtn');
-  if (!button) return;
-
-  const category = button.dataset.category;
-  ws.send(JSON.stringify({ type: 'selectCategory', category }));
-});
-
-document.getElementById('scoreRows2').addEventListener('click', (event) => {
-  const button = event.target.closest('button.acceptBtn');
-  if (!button) return;
-
-  const category = button.dataset.category;
+document.getElementById('scoreBoard').addEventListener('click', e => {
+  const btn = e.target.closest('button.acceptBtn');
+  if (!btn) return;
+  const category = btn.dataset.category;
   ws.send(JSON.stringify({ type: 'selectCategory', category }));
 });
 
 
+function showGameOver(finalScorecard) {
+  // 1. Przygotuj listę wyników
+  const upperCats = ['ones','twos','threes','fours','fives','sixes'];
+  const playersData = lastState.players.map(p => {
+    const scores = finalScorecard[p.id];
+    // suma górnej sekcji
+    const upperSum = upperCats
+      .reduce((s, c) => s + (scores[c] || 0), 0);
+    const bonus = upperSum >= 63 ? 35 : 0;
+    // suma wszystkich kategorii
+    const actual = Object.values(scores)
+      .reduce((s, v) => s + (v || 0), 0);
+    const total = actual + bonus;
+    return { name: p.name, upperSum, bonus, total };
+  });
+  // 2. Sortuj po total malejąco
+  playersData.sort((a, b) => b.total - a.total);
+  // 3. Wyłon zwycięzcę (lub remis)
+  const best = playersData[0].total;
+  const winners = playersData
+    .filter(x => x.total === best)
+    .map(x => x.name)
+    .join(', ');
+
+  // 4. Zbuduj kontener
+  const container = document.createElement('div');
+  container.id = 'gameOver';
+  container.innerHTML = `
+    <h2>Wyniki Końcowe</h2>
+    <p>Zwycięzca: <strong>${winners}</strong> — ${best} pkt</p>
+    <table id="finalResults">
+      <thead>
+        <tr>
+          <th>Gracz</th><th>Górna</th><th>Bonus</th><th>Razem</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${playersData.map(p => `
+          <tr>
+            <td>${p.name}</td>
+            <td>${p.upperSum}</td>
+            <td>${p.bonus}</td>
+            <td>${p.total}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+  // 5. Wyczyść UI gry i wstaw wyniki
+  setupDiv.style.display = 'none';
+  lobbyDiv.style.display = 'none';
+  gameCanvas.style.display = 'none';
+  gameInfo.style.display = 'none';
+  document.getElementById('scoreTable').style.display = 'none';
+
+  document.body.appendChild(container);
+}

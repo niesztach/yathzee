@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>Yahtzee Online</title>
+  <link rel="stylesheet" href="style.css">
   <style>
     body { font-family: sans-serif; }
     #gameCanvas { border: 1px solid #000; margin-top: 10px; }
@@ -41,7 +42,6 @@
   <div id="gameInfo" style="display:none;">
     <p>Gracz: <span id="playerNameDisplay"></span></p>
     <p>Tura: <span id="roundDisplay"></span></p>
-    <p>Punkty: <span id="pointsDisplay"></span></p>
     <p>Rzuty: <span id="rollsLeft">3</span></p>
     <button id="rollDice">Rzuć kostkami</button>
     <button id="endTurn">Zakończ turę</button>
@@ -51,122 +51,21 @@
     Ładuję stan gry…
   </div>
   
-
   <div id="scoreTable" style="display:none; margin-top:20px;">
-
-    <!-- kontener flex na dwie tabele -->
-    <div class="score-container" style="display:flex; gap:40px;">
-  
-      <!-- pierwsza tabela: 1–6 + bonus -->
-      <table>
-        <thead>
-          <tr>
-            <th>Kategoria</th>
-            <th>Punkty</th>
-            <th>Akcja</th>
-          </tr>
-        </thead>
-        <tbody id="scoreRows">
-          <tr data-category="ones">
-            <td>Jedynki</td>
-            <td id="ones">(0)</td>
-            <td><button class="acceptBtn" data-category="ones" disabled>Akceptuj</button></td>
-          </tr>
-          <tr data-category="twos">
-            <td>Dwójki</td>
-            <td id="twos">(0)</td>
-            <td><button class="acceptBtn" data-category="twos" disabled>Akceptuj</button></td>
-          </tr>
-          <tr data-category="threes">
-            <td>Trójki</td>
-            <td id="threes">(0)</td>
-            <td><button class="acceptBtn" data-category="threes" disabled>Akceptuj</button></td>
-          </tr>
-          <tr data-category="fours">
-            <td>Czwórki</td>
-            <td id="fours">(0)</td>
-            <td><button class="acceptBtn" data-category="fours" disabled>Akceptuj</button></td>
-          </tr>
-          <tr data-category="fives">
-            <td>Piątki</td>
-            <td id="fives">(0)</td>
-            <td><button class="acceptBtn" data-category="fives" disabled>Akceptuj</button></td>
-          </tr>
-          <tr data-category="sixes">
-            <td>Szóstki</td>
-            <td id="sixes">(0)</td>
-            <td><button class="acceptBtn" data-category="sixes" disabled>Akceptuj</button></td>
-          </tr>
-          <tr data-category="bonus">
-            <td>Bonus</td>
-            <td id="bonus">(0)</td>
-            <td></td>
-          </tr>
-        </tbody>
-      </table>
-  
-      <!-- druga tabela: pozostałe kategorie -->
-      <table>
-        <thead>
-          <tr>
-            <th>Kategoria</th>
-            <th>Punkty</th>
-            <th>Akcja</th>
-          </tr>
-        </thead>
-        <tbody id="scoreRows2">
-          <tr data-category="threeOfAKind">
-            <td>Trójka</td>
-            <td id="threeOfAKind">(0)</td>
-            <td><button class="acceptBtn" data-category="threeOfAKind" disabled>Akceptuj</button></td>
-          </tr>
-          <tr data-category="fourOfAKind">
-            <td>Czwórka</td>
-            <td id="fourOfAKind">(0)</td>
-            <td><button class="acceptBtn" data-category="fourOfAKind" disabled>Akceptuj</button></td>
-          </tr>
-          <tr data-category="fullHouse">
-            <td>Full House</td>
-            <td id="fullHouse">(0)</td>
-            <td><button class="acceptBtn" data-category="fullHouse" disabled>Akceptuj</button></td>
-          </tr>
-          <tr data-category="smallStraight">
-            <td>Mała Strita</td>
-            <td id="smallStraight">(0)</td>
-            <td><button class="acceptBtn" data-category="smallStraight" disabled>Akceptuj</button></td>
-          </tr>
-          <tr data-category="largeStraight">
-            <td>Duża Strita</td>
-            <td id="largeStraight">(0)</td>
-            <td><button class="acceptBtn" data-category="largeStraight" disabled>Akceptuj</button></td>
-          </tr>
-          <tr data-category="yahtzee">
-            <td>Yahtzee</td>
-            <td id="yahtzee">(0)</td>
-            <td><button class="acceptBtn" data-category="yahtzee" disabled>Akceptuj</button></td>
-          </tr>
-          <tr data-category="chance">
-            <td>Szansa</td>
-            <td id="chance">(0)</td>
-            <td><button class="acceptBtn" data-category="chance" disabled>Akceptuj</button></td>
-          </tr>
-          <tr data-category="total">
-            <td>Łącznie</td>
-            <td id="total">(0)</td>
-          </tr>
-        </tbody>
-      </table>
-  
-    </div>
-  
-    <!-- pozioma linia i wynik łączny -->
-    <hr style="margin:20px 0;">
-    <div id="grandTotal" style="text-align:right; font-size:1.2em;">
-      <strong>Wynik łączny:</strong> <span id="totalScoreDisplay">(0)</span>
-    </div>
-  
+    <table id="scoreBoard">
+      <thead>
+        <tr>
+          <th>Kategoria</th>
+          <!-- poniżej JS dopisze kolejnych <th> z imionami graczy -->
+        </tr>
+      </thead>
+      <tbody>
+        <!-- poniżej JS zbuduje jeden <tr> na kategorię -->
+      </tbody>
+    </table>
   </div>
   
+
 
   <script src="main.js"></script>  
 

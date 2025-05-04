@@ -9,7 +9,7 @@ const wss    = new WebSocket.Server({ server });
 // Serwuj pliki klienta (index.html + JS + assets)
 app.use(express.static('public'));
 
-server.listen(1234, () => {
+server.listen(1234, '0.0.0.0', () => {
   console.log('Serwer HTTP + WS działa na porcie 1234');
 });
 
@@ -123,6 +123,10 @@ wss.on('connection', (ws, req) => {
         ws.send(JSON.stringify({ type: 'error', message: 'To nie jest Twoja tura!' }));
         return;
       }
+    if (state.locked.every(locked => locked)) {
+      ws.send(JSON.stringify({ type: 'error', message: 'Nie możesz zablokować wszystkich kości przed rzutem.' }));
+      return;
+    }
       try {
         rollDice(state);
 const preview = generateScorePreview(state.dice, state.scorecard[ws.playerId]);
@@ -179,6 +183,15 @@ const preview = generateScorePreview(state.dice, state.scorecard[ws.playerId]);
       if (allFilled) {
         state.phase = 'finished';
         broadcastToRoom(roomName, { type: 'gameOver', scorecard: state.scorecard });
+
+               for (const client of room.clients) {
+                   try { client.close(); }
+                   catch (e) { /* ignoruj błędy przy zamykaniu */ }
+                 }
+               // Usunięcie pokoju, żeby przy odświeżeniu już go nie było
+                 rooms.delete(roomName);
+                 console.log(`Pokój ${roomName} został zamknięty po zakończeniu gry.`);
+
       } else {
 const preview = generateScorePreview(state.dice, state.scorecard[ws.playerId]);
         broadcastToRoom(roomName, { type: 'update', state, scorePreview: preview });
