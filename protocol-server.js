@@ -1,185 +1,160 @@
-// // protocol-server.js – binarny protokół komunikacji WebSocket po stronie Node.js
-
-// const { Buffer } = require('buffer');
-
-// const TYPES = {
-//   // klient → serwer
-//   START:        0x01,
-//   ROLL:         0x02,
-//   TOGGLE:       0x03,
-//   END_TURN:     0x04,
-//   SELECT:       0x05,
-//   // serwer → klient
-//   JOINED:       0x10,
-//   LOBBY_UPDATE: 0x11,
-//   HOST_CHANGED: 0x12,
-//   GAME_START:   0x13,
-//   UPDATE:       0x14,
-//   GAME_OVER:    0x15,
-//   RECONNECT:    0x16,
-//   ERROR:        0xFF
-// };
-
-// // ===== DEKODOWANIE (Client → Server) =====
-// function parseMessage(buffer) {
-//   if (!Buffer.isBuffer(buffer)) {
-//     return { type: TYPES.ERROR, message: 'Expected Buffer' };
-//   }
-//   const type = buffer.readUInt8(0);
-//   switch (type) {
-//     case TYPES.START:
-//     case TYPES.ROLL:
-//     case TYPES.END_TURN:
-//       return { type };
-//     case TYPES.TOGGLE:
-//       return { type, index: buffer.readUInt8(1) };
-//     case TYPES.SELECT:
-//       return { type, categoryCode: buffer.readUInt8(1) };
-//     default:
-//       return { type: TYPES.ERROR, message: 'Unknown message type' };
-//   }
-// }
-
-// // ===== BUDOWANIE WIADOMOŚCI (Server → Client) =====
-
-// // pomocnik: serializujemy obiekt JS do JSON i bufora
-// function jsonBuffer(obj) {
-//   const json = JSON.stringify(obj);
-//   return Buffer.from(json);
-// }
-
-// function buildError(message) {
-//   return jsonBuffer({ type: 'error', message });
-// }
-
-// function buildJoined(playerId, players, hostId, hostName) {
-//   return jsonBuffer({ type: 'joined', playerId, players, hostId, hostName });
-// }
-
-// function buildLobbyUpdate(players, hostId, hostName) {
-//   return jsonBuffer({ type: 'lobbyUpdate', players, hostId, hostName });
-// }
-
-// function buildHostChanged(hostId, hostName, players) {
-//   return jsonBuffer({ type: 'hostChanged', hostId, hostName, players });
-// }
-
-// function buildGameStart(state) {
-//   return jsonBuffer({ type: 'gameStart', state });
-// }
-
-// function buildUpdate(state, scorePreview) {
-//   return jsonBuffer({ type: 'update', state, scorePreview });
-// }
-
-// function buildGameOver(scorecard) {
-//   return jsonBuffer({ type: 'gameOver', scorecard });
-// }
-
-// function buildReconnect(state, scorePreview) {
-//   return jsonBuffer({ type: 'reconnect', state, scorePreview });
-// }
-
-// module.exports = {
-//   TYPES,
-//   parseMessage,
-//   buildError,
-//   buildJoined,
-//   buildLobbyUpdate,
-//   buildHostChanged,
-//   buildGameStart,
-//   buildUpdate,
-//   buildGameOver,
-//   buildReconnect
-// };
-
 // protocol-server.js
 const { Buffer } = require('buffer');
 
-const TYPES = {
-  // klient → serwer
-  START:        0x01,
-  ROLL:         0x02,
-  TOGGLE:       0x03,
-  END_TURN:     0x04,
-  SELECT:       0x05,
-  // serwer → klient
-  JOINED:       0x10,
-  LOBBY_UPDATE: 0x11,
-  HOST_CHANGED: 0x12,
-  GAME_START:   0x13,
-  UPDATE:       0x14,
-  GAME_OVER:    0x15,
-  RECONNECT:    0x16,
-  ERROR:        0xFF
-};
+const { TYPES, parseMessage} = require('../kosci/public/protocol.js');
 
-function parseMessage(buffer) {
-  if (!Buffer.isBuffer(buffer)) {
-    return { type: TYPES.ERROR, message: 'Expected Buffer' };
-  }
-  const type = buffer.readUInt8(0);
-  switch (type) {
-    // klient → serwer
-    case TYPES.START:
-    case TYPES.ROLL:
-    case TYPES.END_TURN:
-      return { type };
-    case TYPES.TOGGLE:
-      return { type, index: buffer.readUInt8(1) };
-    case TYPES.SELECT:
-      return { type, categoryCode: buffer.readUInt8(1) };
-    // pozostałe są po stronie serwera, ale rzadko przychodzą tu
-    default:
-      return { type: TYPES.ERROR, message: 'Unknown message type' };
-  }
+
+// pomocnik do zapisania jednego stringa w buf: [len:UInt8][UTF-8 bytes]
+function writeString(buf, offset, str) {
+  const b = Buffer.from(str, 'utf8');
+  buf.writeUInt8(b.length, offset);
+  b.copy(buf, offset + 1);
+  return 1 + b.length;
 }
 
-// helper: prefixujemy type + JSON(payload)
-function buildBuffer(type, objPayload) {
-  const json = JSON.stringify(objPayload);
-  const payload = Buffer.from(json);
-  const buf = Buffer.alloc(1 + payload.length);
-  buf.writeUInt8(type, 0);
-  payload.copy(buf, 1);
+/**
+ * ERROR: [ type:1 ][ msgLen:1 ][ msgBytes ]
+ */
+function buildError(message) {
+  const msgBuf = Buffer.from(message, 'utf8');
+  const buf = Buffer.alloc(1 + 1 + msgBuf.length);
+  let off = 0;
+  buf.writeUInt8(TYPES.ERROR, off++);
+  buf.writeUInt8(msgBuf.length, off++);
+  msgBuf.copy(buf, off);
   return buf;
 }
 
-function buildError(message) {
-  return buildBuffer(TYPES.ERROR, { message });
+/**
+ * JOINED: [ type:1 ][ youId:1 ][ count:1 ]
+ *         [ for each player: len:1 + nameBytes ]
+ *         [ hostIndex:1 ]
+ */
+
+function buildJoined(youId, players, hostIndex) {
+  // każdy player ma .id i .name
+  // 1b type, 1b youIdLen + youId, 1b count,
+  // [ for each player: idLen + id + nameLen + name ], 1b hostIndex
+  const youBuf = Buffer.from(youId,'utf8');
+  const nameBufs = players.map(p=>Buffer.from(p.name,'utf8'));
+  const idBufs   = players.map(p=>Buffer.from(p.id,'utf8'));
+  const namesTotal = players.reduce((s,_,i)=>s + 1 + idBufs[i].length + 1 + nameBufs[i].length, 0);
+  const buf = Buffer.alloc(1 + 1 + youBuf.length + 1 + namesTotal + 1);
+
+  let off = 0;
+  buf.writeUInt8(TYPES.JOINED, off++);
+  // youId
+  buf.writeUInt8(youBuf.length, off);
+  youBuf.copy(buf, off+1);
+  off += 1 + youBuf.length;
+  // count
+  buf.writeUInt8(players.length, off++);
+  // for each player: id + name
+  for (let i=0; i<players.length; i++) {
+    off += writeString(buf, off, players[i].id);
+    off += writeString(buf, off, players[i].name);
+  }
+  // hostIndex
+  buf.writeUInt8(hostIndex, off);
+  return buf;
 }
 
-function buildJoined(playerId, players, hostId, hostName) {
-  return buildBuffer(TYPES.JOINED, { playerId, players, hostId, hostName });
+
+/**
+ * LOBBY_UPDATE: [ type:1 ][ count:1 ]
+ *               [ for each player: len:1 + nameBytes ]
+ *               [ hostIndex:1 ]
+ */
+
+function buildLobbyUpdate(players, hostIndex) {
+  const idBufs   = players.map(p=>Buffer.from(p.id,'utf8'));
+  const nameBufs = players.map(p=>Buffer.from(p.name,'utf8'));
+  const total    = players.reduce((s,_,i)=>s + 1 + idBufs[i].length + 1 + nameBufs[i].length, 0);
+  const buf      = Buffer.alloc(1 + 1 + total + 1);
+
+  let off = 0;
+  buf.writeUInt8(TYPES.LOBBY_UPDATE, off++);
+  buf.writeUInt8(players.length, off++);
+  for (let i=0; i<players.length; i++) {
+    off += writeString(buf, off, players[i].id);
+    off += writeString(buf, off, players[i].name);
+  }
+  buf.writeUInt8(hostIndex, off);
+  return buf;
 }
 
-function buildLobbyUpdate(players, hostId, hostName) {
-  return buildBuffer(TYPES.LOBBY_UPDATE, { players, hostId, hostName });
+
+/**
+ * HOST_CHANGED: [ type:1 ][ newHostIndex:1 ]
+ */
+function buildHostChanged(hostIndex) {
+  const buf = Buffer.alloc(1 + 1);
+  buf.writeUInt8(TYPES.HOST_CHANGED, 0);
+  buf.writeUInt8(hostIndex, 1);
+  return buf;
 }
 
-function buildHostChanged(hostId, hostName, players) {
-  return buildBuffer(TYPES.HOST_CHANGED, { hostId, hostName, players });
-}
-
+/**
+ * GAME_START: [ type:1 ][ jsonLen:2 ][ jsonBytes ]
+ */
 function buildGameStart(state) {
-  return buildBuffer(TYPES.GAME_START, { state });
+  const json    = JSON.stringify(state);
+  const payload = Buffer.from(json, 'utf8');
+  const buf     = Buffer.alloc(1 + 2 + payload.length);
+  let off = 0;
+  
+  buf.writeUInt8(TYPES.GAME_START, off++);
+  buf.writeUInt16BE(payload.length, off); off += 2;
+  payload.copy(buf, off);
+  return buf;
 }
 
+/**
+ * UPDATE: [ type:1 ][ jsonLen:2 ][ jsonBytes ]
+ */
 function buildUpdate(state, scorePreview) {
-  return buildBuffer(TYPES.UPDATE, { state, scorePreview });
+  const json    = JSON.stringify({ state, scorePreview });
+  const payload = Buffer.from(json, 'utf8');
+  const buf     = Buffer.alloc(1 + 2 + payload.length);
+  let off = 0;
+  
+  buf.writeUInt8(TYPES.UPDATE, off++);
+  buf.writeUInt16BE(payload.length, off); off += 2;
+  payload.copy(buf, off);
+  return buf;
 }
 
+/**
+ * GAME_OVER: [ type:1 ][ jsonLen:2 ][ jsonBytes ]
+ */
 function buildGameOver(scorecard) {
-  return buildBuffer(TYPES.GAME_OVER, { scorecard });
+  const json    = JSON.stringify(scorecard);
+  const payload = Buffer.from(json, 'utf8');
+  const buf     = Buffer.alloc(1 + 2 + payload.length);
+  let off = 0;
+  
+  buf.writeUInt8(TYPES.GAME_OVER, off++);
+  buf.writeUInt16BE(payload.length, off); off += 2;
+  payload.copy(buf, off);
+  return buf;
 }
 
+/**
+ * RECONNECT: [ type:1 ][ jsonLen:2 ][ jsonBytes ]
+ */
 function buildReconnect(state, scorePreview) {
-  return buildBuffer(TYPES.RECONNECT, { state, scorePreview });
+  const json    = JSON.stringify({ state, scorePreview });
+  const payload = Buffer.from(json, 'utf8');
+  const buf     = Buffer.alloc(1 + 2 + payload.length);
+  let off = 0;
+  
+  buf.writeUInt8(TYPES.RECONNECT, off++);
+  buf.writeUInt16BE(payload.length, off); off += 2;
+  payload.copy(buf, off);
+  return buf;
 }
 
 module.exports = {
-  TYPES,
-  parseMessage,
   buildError,
   buildJoined,
   buildLobbyUpdate,
@@ -187,5 +162,7 @@ module.exports = {
   buildGameStart,
   buildUpdate,
   buildGameOver,
-  buildReconnect
+  buildReconnect,
+  parseMessage,
+  TYPES
 };

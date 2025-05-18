@@ -46,6 +46,8 @@ const startBtn    = document.getElementById('startGame');
 const cancelBtn   = document.getElementById('cancel');
 const loadingDiv  = document.getElementById('loading');
 const gameInfo    = document.getElementById('gameInfo');
+let isGameOver = false;
+
 
 //list kategorii i etykiety
 
@@ -192,13 +194,15 @@ function joinRoom(code, name) {
           players: data.state.players,
         }));
         break;
+
       case TYPES.GAME_OVER:
         sessionStorage.setItem('phase', 'finished');
-        showGameOver(data.scorecard);
-        ws.close();
+        showGameOver(lastState, data.scorecard);
+        isGameOver = true;
+        ws.close(1000, 'game over');
         sessionStorage.clear();
-        showSetup();
         break;
+
       case TYPES.ERROR:
         alert(data.message);
         break;
@@ -211,6 +215,7 @@ function joinRoom(code, name) {
   ws.onerror = (error) => console.error("WebSocket napotkał błąd:", error);
 
   ws.onclose = (event) => {
+    if (isGameOver) return; 
     console.log("WebSocket został zamknięty. Kod:", event.code, "Powód:", event.reason, "Było czyste:", event.wasClean);
     if (isReloading) return;
     if (!event.wasClean && event.code !== 1006) alert(`Połączenie z grą zostało przerwane (Kod: ${event.code})`);
@@ -285,12 +290,12 @@ document.getElementById('endTurn').addEventListener('click', () => {
   ws.send(buildEndTurn());
 });
 
-document.querySelectorAll('.die').forEach((die, index) => {
-  die.addEventListener('click', () => {
-    if (!isMyTurn) return;
-    ws.send(buildToggle(index));
-  });
-});
+// document.querySelectorAll('.die').forEach((die, index) => {
+//   die.addEventListener('click', () => {
+//     if (!isMyTurn) return;
+//     ws.send(buildToggle(index));
+//   });
+// });
 
 // sprawdz która kostka została kliknięta
 gameCanvas.addEventListener('click', (event) => {

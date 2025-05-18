@@ -45,21 +45,29 @@ export function showSetup() {
 
 
   
-export function showGameOver(finalScorecard) {
-    // 1. Przygotuj listę wyników
+export function showGameOver(state, finalScorecard) {
+
+  const setupDiv   = document.getElementById('setup');
+  const lobbyDiv   = document.getElementById('lobby');
+  const gameCanvas = document.getElementById('gameCanvas');
+  const gameInfo   = document.getElementById('gameInfo');
+  const scoreTable = document.getElementById('scoreTable');
+
+    // 1. przygotuj listę wyników
     const upperCats = ['ones','twos','threes','fours','fives','sixes'];
-    const playersData = lastState.players.map(p => {
-      const scores = finalScorecard[p.id];
-      // suma górnej sekcji
-      const upperSum = upperCats
-        .reduce((s, c) => s + (scores[c] || 0), 0);
-      const bonus = upperSum >= 63 ? 35 : 0;
-      // suma wszystkich kategorii
-      const actual = Object.values(scores)
-        .reduce((s, v) => s + (v || 0), 0);
-      const total = actual + bonus;
-      return { name: p.name, upperSum, bonus, total };
-    });
+const playersData = state.players.map(p => {
+  const scores = finalScorecard[p.id];
+  // suma górnej sekcji
+  const upperSum = upperCats
+    .reduce((s, c) => s + (scores[c] || 0), 0);
+  const bonus = upperSum >= 63 ? 35 : 0;
+  // suma wszystkich kategorii
+  const actual = Object.values(scores)
+    .reduce((s, v) => s + (v || 0), 0);
+  const total = actual + bonus;
+  return { name: p.name, upperSum, bonus, total };
+});
+
     // 2. Sortuj po total malejąco
     playersData.sort((a, b) => b.total - a.total);
     // 3. Wyłon zwycięzcę (lub remis)
@@ -92,14 +100,20 @@ export function showGameOver(finalScorecard) {
           `).join('')}
         </tbody>
       </table>
+      <button id="newGameBtn">Nowa gra</button>
     `;
     // 5. Wyczyść UI gry i wstaw wyniki
     setupDiv.style.display = 'none';
     lobbyDiv.style.display = 'none';
     gameCanvas.style.display = 'none';
     gameInfo.style.display = 'none';
+    scoreTable.style.display = 'none';
     document.getElementById('scoreTable').style.display = 'none';
   
     document.body.appendChild(container);
+    container.querySelector('#newGameBtn').addEventListener('click', () => {
+  // pokaż ekran tworzenia/łączenia nowego lobby
+  showSetup();
+});
   }
   

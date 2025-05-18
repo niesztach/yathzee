@@ -12,7 +12,7 @@ const {
   buildGameStart,
   buildUpdate,
   buildGameOver,
-  buildReconnect
+  buildReconnect,
 } = require('./protocol-server.js');
 
 
@@ -226,27 +226,49 @@ wss.on('connection', (ws, req) => {
       const prev = generateScorePreview(state.dice);
       return broadcastBinaryToRoom(roomName, buildUpdate(state, prev));
     }
-    // SELECT
-    if (msg.type===TYPES.SELECT) {
-      const code = msg.categoryCode;
-      const category = Object.entries(require('./public/protocol.js').categoryCodes)
-        .find(([,c])=>c===code)?.[0];
-      if (!category) return sendBinary(ws, buildError('Nieznana kategoria'));
-      if (ws.playerId!==current.id) return sendBinary(ws, buildError('To nie jest Twoja tura!'));
-      if (state.scorecard[ws.playerId][category]!=null||state.dice.includes(0))
-        return sendBinary(ws, buildError('Błąd - kategoria zajęta lub kości nie zostały rzucone!'));
-      state.scorecard[ws.playerId][category]=calculateScore(state.dice, category);
-      state.dice=[0,0,0,0,0]; endTurn(state);
-      const all = Object.values(state.scorecard)
-        .every(sc=>Object.values(sc).every(v=>v!=null));
-      if (all) {
-        state.phase='finished';
-        return broadcastBinaryToRoom(roomName, buildGameOver(state.scorecard));
-      } else {
-        const prev = generateScorePreview(state.dice, state.scorecard[ws.playerId]);
-        return broadcastBinaryToRoom(roomName, buildUpdate(state, prev));
-      }
+  // SELECT
+  if (msg.type === TYPES.SELECT) {
+    const code = msg.categoryCode;
+    const category = Object.entries(require('./public/protocol.js').categoryCodes)
+      .find(([,c]) => c === code)?.[0];
+    if (!category) return sendBinary(ws, buildError('Nieznana kategoria'));
+    if (ws.playerId !== current.id) return sendBinary(ws, buildError('To nie jest Twoja tura!'));
+    if (state.scorecard[ws.playerId][category] != null || state.dice.includes(0))
+      return sendBinary(ws, buildError('Błąd - kategoria zajęta lub kości nie zostały rzucone!'));
+
+    // 1) Zapisz wynik
+    state.scorecard[ws.playerId][category] = calculateScore(state.dice, category);
+
+        // … zapisujesz wynik …
+    state.scorecard[ws.playerId][category] = calculateScore(state.dice, category);
+
+    // Sprawdź, czy to był ostatni ruch
+    const allFilled = Object.values(state.scorecard)
+      .every(sc => Object.values(sc).every(v => v != null));
+
+    if (allFilled) {
+      console.log('MSG: KONIEC GRY');
+      // KONIEC GRY
+      state.phase = 'finished';
+
+      // 1) Wyślij UPDATE z już wypełnioną tabelą
+      const preview = generateScorePreview(state.dice, state.scorecard[ws.playerId]);
+      broadcastBinaryToRoom(roomName, buildUpdate(state, preview));
+
+      // 2) Teraz GAME_OVER
+      return broadcastBinaryToRoom(roomName, buildGameOver(state.scorecard));
     }
+
+    // NIE KONIEC GRY → zmień turę
+    state.dice = [0, 0, 0, 0, 0];
+    endTurn(state);
+
+    // policz preview dla *nowej* tury (z pustymi kośćmi)
+    const preview = generateScorePreview(state.dice, state.scorecard[ws.playerId]);
+    // teraz dopiero wysyłaj UPDATE
+    return broadcastBinaryToRoom(roomName, buildUpdate(state, preview));
+      }
+
 
     // Nieznany typ
     return sendBinary(ws, buildError('Nieznany typ wiadomości'));
