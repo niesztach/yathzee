@@ -160,10 +160,16 @@ function joinRoom(code, name) {
         updateLobbyUI();
         break;
       case TYPES.LOBBY_UPDATE:
-      case TYPES.HOST_CHANGED:
         players = data.players;
         isHost = (data.hostId === playerId);
         lobbyHostSp.textContent = data.hostName;
+        updateLobbyUI();
+        break;
+
+      case TYPES.HOST_CHANGED:
+        // Możesz odświeżyć tylko hosta, nie ruszaj players!
+        isHost = (data.hostId === playerId);
+        // Jeśli chcesz, możesz odświeżyć UI, ale nie nadpisuj players!
         updateLobbyUI();
         break;
       case TYPES.GAME_START:
