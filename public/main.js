@@ -4,6 +4,17 @@ import {
   showGameOver
 } from './ui.js';
 
+import {
+  TYPES,
+  buildStart,
+  buildRoll,
+  buildToggle,
+  buildEndTurn,
+  buildSelect,
+  categoryCodes,
+  parseMessage
+} from './protocol.js';
+
 // ====== ZMIENNE GLOBALNE ======
 let ws;
 let playerId = null;
@@ -121,14 +132,12 @@ window.addEventListener('load', () => {
 function joinRoom(code, name) {
   roomCode   = code;
   playerName = name;
+  sessionStorage.setItem('roomCode', roomCode);
+  sessionStorage.setItem('playerName', playerName);
+  sessionStorage.setItem('isHost', isHost);
 
-// Zapisanie danych w sessionStorage
-sessionStorage.setItem('roomCode', roomCode);
-sessionStorage.setItem('playerName', playerName);
-sessionStorage.setItem('isHost', isHost);
-
-const idParam = playerId ? `&id=${playerId}` : '';
-ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent(name)}${idParam}`);
+  const idParam = playerId ? `&id=${playerId}` : '';
+  ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent(name)}${idParam}`);
   ws.binaryType = 'arraybuffer';
 
   ws.onopen = () => {
@@ -137,120 +146,82 @@ ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent
   };
 
   ws.onmessage = e => {
-    const msg = JSON.parse(e.data);
-    switch (msg.type) {
-      case 'joined':
-        playerId = msg.playerId;
-        players  = msg.players;
-        // Zapisanie playerId w sessionStorage
+    const { type, ...data } = parseMessage(e.data);
+    switch (type) {
+      case TYPES.JOINED:
+        playerId = data.playerId;
+        players  = data.players;
         sessionStorage.setItem('playerId', playerId);
-
-       isHost = (msg.hostId === playerId);
-       lobbyHostSp.textContent = msg.hostName;
-
-       // Ustaw nazwę gracza w widoku gry
-       document.getElementById('playerNameDisplay').textContent = playerName;
-
-       updateLobbyUI();
-        break;
-      case 'playerJoined':
-      case 'lobbyUpdate':
-        players = msg.players;
-        // aktualizacja hosta w razie zmiany
-        isHost = (msg.hostId === playerId);
-        lobbyHostSp.textContent = msg.hostName;
-        updateLobbyUI();
-        break;
-      case 'hostChanged':
-        // zmiana hosta w lobby
-        isHost = (msg.hostId === playerId);
-        lobbyHostSp.textContent = msg.hostName;
-        updateLobbyUI();
-        break;
-
-      case 'gameStart':
-          sessionStorage.setItem('phase', 'playing');
-          // 1) Pokaż właściwe UI
-          setupDiv.style.display   = 'none';
-          lobbyDiv.style.display   = 'none';
-          gameCanvas.style.display = '';
-          gameInfo.style.display   = '';
-          document.getElementById('scoreTable').style.display = '';
-        
-          // 2) Zainicjuj rysowanie – kostki + tabela
-          //    nie czekamy na update, tylko od razu wywołujemy renderGame
-          //    z pustym preview (wszystkie kategorie 0), żeby zobaczyć tabelę
-          const emptyPreview = {};
-          categories.forEach(cat => {
-            if (cat !== 'bonus' && cat !== 'total') emptyPreview[cat] = 0;
-          });
-          renderGame(msg.state, emptyPreview);
-          break;
-      
-      case 'reconnect':
-        console.log('Handler reconnect: Próbuję renderować grę...'); // Nowy log
+        isHost = (data.hostId === playerId);
+        lobbyHostSp.textContent = data.hostName;
         document.getElementById('playerNameDisplay').textContent = playerName;
-        console.log('Handler reconnect: Renderowanie zakończono. WS State:',ws.readyState); // Nowy log
-        renderGame(msg.state,  msg.scorePreview);
+        updateLobbyUI();
         break;
-     
-      case 'update':
-        renderGame(msg.state, msg.scorePreview);
-        // Zapisz stan gry w sessionStorage
+      case TYPES.LOBBY_UPDATE:
+      case TYPES.HOST_CHANGED:
+        players = data.players;
+        isHost = (data.hostId === playerId);
+        lobbyHostSp.textContent = data.hostName;
+        updateLobbyUI();
+        break;
+      case TYPES.GAME_START:
+        sessionStorage.setItem('phase', 'playing');
+        setupDiv.style.display   = 'none';
+        lobbyDiv.style.display   = 'none';
+        gameCanvas.style.display = '';
+        gameInfo.style.display   = '';
+        document.getElementById('scoreTable').style.display = '';
+        const emptyPreview = {};
+        categories.forEach(cat => {
+          if (cat !== 'bonus' && cat !== 'total') emptyPreview[cat] = 0;
+        });
+        renderGame(data.state, emptyPreview);
+        break;
+      case TYPES.RECONNECT:
+        document.getElementById('playerNameDisplay').textContent = playerName;
+        renderGame(data.state, data.scorePreview);
+        break;
+      case TYPES.UPDATE:
+        renderGame(data.state, data.scorePreview);
         sessionStorage.setItem('gameState', JSON.stringify({
-          dice: msg.state.dice,
-          locked: msg.state.locked,
-          currentTurn: msg.state.currentTurn,
-          rollsLeft: msg.state.rollsLeft,
-          scorecard: msg.state.scorecard,
-          players: msg.state.players,
+          dice: data.state.dice,
+          locked: data.state.locked,
+          currentTurn: data.state.currentTurn,
+          rollsLeft: data.state.rollsLeft,
+          scorecard: data.state.scorecard,
+          players: data.state.players,
         }));
         break;
-
-        case 'gameOver':
-          sessionStorage.setItem('phase', 'finished');
-          showGameOver(msg.scorecard);
-          ws.close();
-          sessionStorage.clear(); // Wyczyść sessionStorage po zakończeniu gry
-          showSetup(); // Pokaż ekran setup
-          break;        
-
-      case 'error':
-        alert(msg.message);
+      case TYPES.GAME_OVER:
+        sessionStorage.setItem('phase', 'finished');
+        showGameOver(data.scorecard);
+        ws.close();
+        sessionStorage.clear();
+        showSetup();
+        break;
+      case TYPES.ERROR:
+        alert(data.message);
+        break;
+      default:
+        console.warn('Nieznany typ wiadomości:', type);
         break;
     }
   };
 
-ws.onerror = (error) => {
-  console.error("WebSocket napotkał błąd:", error); // Zobaczymy szczegóły błędu
-};
+  ws.onerror = (error) => console.error("WebSocket napotkał błąd:", error);
 
-ws.onclose = (event) => {
-  // Sprawdź kody zamknięcia: https://developer.mozilla.org/en-US/docs/Web/API/CloseEvent
-  console.log("WebSocket został zamknięty. Kod:", event.code, "Powód:", event.reason, "Było czyste:", event.wasClean);
-
-  if (isReloading) {
-     console.log("WebSocket zamknięty z powodu odświeżenia.");
-     return;
-  }
-
-  // Poniższa logika wymaga dopracowania w zależności od Twoich potrzeb
-  // i od tego, co znaczy userInitiatedClose w Twoim kodzie
-  if (!event.wasClean && event.code !== 1006) { // 1006 to błąd połączenia (np. serwer padł)
-     alert(`Połączenie z grą zostało przerwane (Kod: ${event.code}). Sprawdź konsolę po szczegóły.`);
-  }
-
-
-  if (!userInitiatedClose) {
-     showSetup(); // Pokaż ekran setup
-     errDiv.style.display = ''; // Pokaż div z błędem (jeśli taki masz)
-     // Możesz ustawić tekst błędu np. "Utracono połączenie z grą."
-  } else {
-     // Jeśli zamknął celowo (np. przycisk wyjścia z lobby)
-     sessionStorage.clear(); // Czyść storage tylko przy celowym wyjściu
-     showSetup();
-  }
-};
+  ws.onclose = (event) => {
+    console.log("WebSocket został zamknięty. Kod:", event.code, "Powód:", event.reason, "Było czyste:", event.wasClean);
+    if (isReloading) return;
+    if (!event.wasClean && event.code !== 1006) alert(`Połączenie z grą zostało przerwane (Kod: ${event.code})`);
+    if (!userInitiatedClose) {
+      showSetup();
+      errDiv.style.display = '';
+    } else {
+      sessionStorage.clear();
+      showSetup();
+    }
+  };
 }
 
 // ====== AKTUALIZACJA LOBBY ======
@@ -297,7 +268,7 @@ btnJoin.addEventListener('click', () => {
 
 startBtn.addEventListener('click', () => {
   sessionStorage.setItem('phase', 'playing');
-  ws.send(JSON.stringify({ type: 'start' }));
+  ws.send(buildStart());
 });
 
 cancelBtn.addEventListener('click', () => {
@@ -307,29 +278,28 @@ cancelBtn.addEventListener('click', () => {
 });
 
 document.getElementById('rollDice').addEventListener('click', () => {
-  ws.send(JSON.stringify({ type: 'rollDice' }));
+  ws.send(buildRoll());
 });
 
 document.getElementById('endTurn').addEventListener('click', () => {
-  ws.send(JSON.stringify({ type: 'endTurn' }));
+  ws.send(buildEndTurn());
 });
 
 document.querySelectorAll('.die').forEach((die, index) => {
   die.addEventListener('click', () => {
-    ws.send(JSON.stringify({ type: 'toggleLock', index })); // Wyślij komunikat do serwera
+    if (!isMyTurn) return;
+    ws.send(buildToggle(index));
   });
 });
 
+// sprawdz która kostka została kliknięta
 gameCanvas.addEventListener('click', (event) => {
-  if (!isMyTurn) return;   // <— zabrania toggle, gdy nie moja tura
+  if (!isMyTurn) return;
   const rect = gameCanvas.getBoundingClientRect();
   const x = event.clientX - rect.left;
-  const y = event.clientY - rect.top;
-
-  // Sprawdź, która kostka została kliknięta
-  const index = Math.floor(x / 90); // Zakładamy, że każda kostka ma szerokość 90px
+  const index = Math.floor(x / 90);
   if (index >= 0 && index < 5) {
-    ws.send(JSON.stringify({ type: 'toggleLock', index })); // Wyślij komunikat do serwera
+    ws.send(buildToggle(index));
   }
 });
 
@@ -337,7 +307,9 @@ document.getElementById('scoreBoard').addEventListener('click', e => {
   const btn = e.target.closest('button.acceptBtn');
   if (!btn) return;
   const category = btn.dataset.category;
-  ws.send(JSON.stringify({ type: 'selectCategory', category }));
+  const code = categoryCodes[category];
+  if (code === undefined) return;
+  ws.send(buildSelect(code));
 });
 
 export function buildScoreBoard(state, scorePreview) {
