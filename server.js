@@ -19,7 +19,13 @@ const {
 
 const app = express();
 const server = http.createServer(app);
-const wss    = new WebSocket.Server({ server });
+const wss    = new WebSocket.Server({ server,
+  perMessageDeflate: {    // ← WŁĄCZAMY
+   // opcjonalne tuningi (podane sensowne minimum)
+   threshold: 128,       // kompresuj ramki ≥128 B
+   concurrencyLimit: 10, // jednocześnie max 10 strumieni deflate
+ },
+ });
 
 
 
@@ -227,7 +233,9 @@ wss.on('connection', (ws, req) => {
     if (msg.type===TYPES.START && ws.playerId===room.hostId && state.phase==='lobby') {
       state.phase='playing';
       room.prevState = structuredClone(state); //zeby mial odpowiedni preview na poczatku
-      return broadcastBinaryToRoom(roomName, buildGameStart(state));
+ const cleanState = structuredClone(state);   // lub {...state}
+ delete cleanState.scorecard;                 // << TU usuwamy
+ return broadcastBinaryToRoom(roomName, buildGameStart(cleanState));
     }
     // ROLL
     if (msg.type===TYPES.ROLL) {

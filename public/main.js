@@ -254,20 +254,47 @@ function joinRoom(code, name) {
         // Jeśli chcesz, możesz odświeżyć UI, ale nie nadpisuj players!
         updateLobbyUI();
         break;
-      case TYPES.GAME_START:
-        sessionStorage.setItem('phase', 'playing');
-        setupDiv.style.display   = 'none';
-        lobbyDiv.style.display   = 'none';
-        gameCanvas.style.display = '';
-        gameInfo.style.display   = '';
-        document.getElementById('scoreTable').style.display = '';
-   gameState    = data.state;
-   scorePreview = Object.fromEntries(
-     CATS.map(c => [c, 0])   // pusty preview na start
-   );
-   renderGame(gameState, scorePreview);
-   persistStablePart();
-        break;
+
+        case TYPES.GAME_START: 
+  // 1) gotowy szablon jednej karty: { ones:null, …, chance:null }
+  const emptyCard = Object.fromEntries(
+    CATS.map(c => [c, null])
+  );
+
+  // 2) zrób scorecard dla wszystkich graczy
+  const rebuilt = {};
+  data.state.players.forEach(p => {
+    rebuilt[p.id] = { ...emptyCard };
+  });
+
+  // 3) pełny gameState z nadpisanym, pustym scorecard
+  gameState = {
+    ...data.state,
+    scorecard: rebuilt          // ← już poprawny kształt
+  };
+
+  // 4) preview 0-owe jak dotąd
+  scorePreview = Object.fromEntries(CATS.map(c => [c, 0]));
+
+  renderGame(gameState, scorePreview);
+  persistStablePart();
+  break;
+
+  //     case TYPES.GAME_START:
+  //       sessionStorage.setItem('phase', 'playing');
+  //       setupDiv.style.display   = 'none';
+  //       lobbyDiv.style.display   = 'none';
+  //       gameCanvas.style.display = '';
+  //       gameInfo.style.display   = '';
+  //       document.getElementById('scoreTable').style.display = '';
+  //  gameState    = data.state;
+  //  // gameState = { ...data.state, scorecard: {} };
+  //  scorePreview = Object.fromEntries(
+  //    CATS.map(c => [c, 0])   // pusty preview na start
+  //  );
+  //  renderGame(gameState, scorePreview);
+  //  persistStablePart();
+  //       break;
       case TYPES.RECONNECT:
         document.getElementById('playerNameDisplay').textContent = playerName;
    gameState    = data.state;
