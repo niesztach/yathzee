@@ -1,7 +1,7 @@
 // protocol-server.js
 const { Buffer } = require('buffer');
 
-const { TYPES, parseMessage} = require('../kosci/public/protocol.js');
+const { TYPES, CATS, parseMessage} = require('../kosci/public/protocol.js');
 
 
 // pomocnik do zapisania jednego stringa w buf: [len:UInt8][UTF-8 bytes]
@@ -154,6 +154,43 @@ function buildReconnect(state, scorePreview) {
   return buf;
 }
 
+
+let seq = 0;                    // globalny licznik delty
+
+function arrayEq(a, b) {
+  return Array.isArray(a) && Array.isArray(b) &&
+         a.length === b.length &&
+         a.every((v, i) => v === b[i]);
+}
+
+function buildDelta(prev, curr, previewForCurrent) {
+  const d = { seq: ++seq };
+
+  if (!arrayEq(prev.dice, curr.dice))        d.dice       = curr.dice;
+  if (!arrayEq(prev.locked, curr.locked))    d.locked     = curr.locked;
+  if (prev.rollsLeft !== curr.rollsLeft)     d.rollsLeft  = curr.rollsLeft;
+  if (prev.currentTurn !== curr.currentTurn) d.turn       = curr.currentTurn;
+
+  if (curr.lastCommit) {                     // commit to pojedyncza kategoria
+    const { playerId, cat, value } = curr.lastCommit;
+    d.commit = { player: playerId, cat: CATS.indexOf(cat), val: value };
+  }
+
+if (previewForCurrent)
+  d.preview = CATS.map(c => previewForCurrent[c] ?? 0); // 13 pól
+
+
+  // ↙ identyczne opakowanie jak w buildUpdate
+  const payload = Buffer.from(JSON.stringify(d), 'utf8');
+  const buf     = Buffer.alloc(1 + 2 + payload.length);
+  let off = 0;
+  buf.writeUInt8(TYPES.DELTA,    off++);
+  buf.writeUInt16BE(payload.length, off); off += 2;
+  payload.copy(buf, off);
+  return buf;
+}
+
+
 module.exports = {
   buildError,
   buildJoined,
@@ -164,5 +201,6 @@ module.exports = {
   buildGameOver,
   buildReconnect,
   parseMessage,
+  buildDelta,
   TYPES
 };

@@ -4,6 +4,8 @@ import {
   showGameOver
 } from './ui.js';
 
+import { CATS } from './protocol.js';
+
 import {
   TYPES,
   buildStart,
@@ -26,6 +28,25 @@ let players = [];
 let isReloading = false; // flaga do rozróżnienia zamknięcia połączenia przez użytkownika
 let isMyTurn = false;
 let lastState = null;
+let gameState    = null;   // dostajesz ją w TYPES.INIT / UPDATE
+let scorePreview = null;
+
+
+/* main.js ─ w pobliżu importów / globali */
+let netIn  = 0;   // bajty odebrane
+let netOut = 0;   // bajty wysłane
+
+function pretty(n) {
+  return n < 1024
+    ? `${n} B`
+    : `${(n/1024).toFixed(1)} KB`;
+}
+window.netStats = () => {
+  console.log(
+    `%cΔ  traffic  ⇣ ${pretty(netIn)}   ⇡ ${pretty(netOut)}`,
+    'font-weight:bold;color:#6cf'
+  );
+};
 
 
 // ====== ELEMENTY DOM ======
@@ -47,6 +68,7 @@ const cancelBtn   = document.getElementById('cancel');
 const loadingDiv  = document.getElementById('loading');
 const gameInfo    = document.getElementById('gameInfo');
 let isGameOver = false;
+const PROTO_VER = 2;  
 
 
 //list kategorii i etykiety
@@ -129,6 +151,36 @@ window.addEventListener('load', () => {
   }
 
 
+  function applyDelta(d) {
+  if (d.dice)       gameState.dice       = d.dice;
+  if (d.locked)     gameState.locked     = d.locked;
+  if (d.rollsLeft!==undefined) gameState.rollsLeft = d.rollsLeft;
+  if (d.turn!==undefined)      gameState.currentTurn = d.turn;
+
+  // commit tylko w jednym miejscu
+  if (d.commit) {
+    const { player, cat, val } = d.commit;
+    gameState.scorecard[player][CATS[cat]] = val;
+  }
+  if (d.preview) scorePreview = arrayToPreviewObj(d.preview);
+}
+
+function arrayToPreviewObj(arr) {
+  return Object.fromEntries(CATS.map((c,i) => [c, arr[i]]));
+}
+
+function persistStablePart() {
+  if (!gameState) return;            // ← early-return, gdyby ktoś wywołał za wcześnie
+  sessionStorage.setItem('gameState', JSON.stringify({
+    dice:         gameState.dice,
+    locked:       gameState.locked,
+    currentTurn:  gameState.currentTurn,
+    rollsLeft:    gameState.rollsLeft,
+    scorecard:    gameState.scorecard,
+    players:      gameState.players,
+  }));
+}
+
 
 // ====== FUNKCJA ŁĄCZĄCA WS ======
 function joinRoom(code, name) {
@@ -139,8 +191,26 @@ function joinRoom(code, name) {
   sessionStorage.setItem('isHost', isHost);
 
   const idParam = playerId ? `&id=${playerId}` : '';
-  ws = new WebSocket(`ws://${location.host}?room=${code}&name=${encodeURIComponent(name)}${idParam}`);
+ ws = new WebSocket(
+   `ws://${location.host}?room=${code}` +
+   `&name=${encodeURIComponent(name)}` +
+   `&v=${PROTO_VER}${idParam}`
+ );
   ws.binaryType = 'arraybuffer';
+
+    /* ==== LICZNIK WYCHODZĄCYCH BAJTÓW ==== */
+  const _send = ws.send.bind(ws);          // oryginał
+  ws.send = function (data) {
+    if (data instanceof ArrayBuffer) {
+      netOut += data.byteLength;
+    } else if (ArrayBuffer.isView(data)) {
+      netOut += data.byteLength;
+    } else if (typeof data === 'string') {
+      netOut += new TextEncoder().encode(data).length;
+    }
+    return _send(data);                    // wywołaj oryginał
+  };
+  /* ===================================== */
 
   ws.onopen = () => {
     console.log('Połączono z pokojem', code);
@@ -148,6 +218,18 @@ function joinRoom(code, name) {
   };
 
   ws.onmessage = e => {
+
+
+      // zlicz rozmiar
+  if (e.data instanceof ArrayBuffer) {
+        netIn += e.data.byteLength;
+ } else if (ArrayBuffer.isView(e.data)) {
+    netIn += e.data.byteLength;
+  } else if (typeof e.data === 'string') {
+    netIn += new TextEncoder().encode(e.data).length;
+  }
+
+
     const { type, ...data } = parseMessage(e.data);
     switch (type) {
       case TYPES.JOINED:
@@ -179,27 +261,37 @@ function joinRoom(code, name) {
         gameCanvas.style.display = '';
         gameInfo.style.display   = '';
         document.getElementById('scoreTable').style.display = '';
-        const emptyPreview = {};
-        categories.forEach(cat => {
-          if (cat !== 'bonus' && cat !== 'total') emptyPreview[cat] = 0;
-        });
-        renderGame(data.state, emptyPreview);
+   gameState    = data.state;
+   scorePreview = Object.fromEntries(
+     CATS.map(c => [c, 0])   // pusty preview na start
+   );
+   renderGame(gameState, scorePreview);
+   persistStablePart();
         break;
       case TYPES.RECONNECT:
         document.getElementById('playerNameDisplay').textContent = playerName;
-        renderGame(data.state, data.scorePreview);
+   gameState    = data.state;
+   scorePreview = data.scorePreview;
+   renderGame(gameState, scorePreview);
+   persistStablePart();
         break;
-      case TYPES.UPDATE:
-        renderGame(data.state, data.scorePreview);
-        sessionStorage.setItem('gameState', JSON.stringify({
-          dice: data.state.dice,
-          locked: data.state.locked,
-          currentTurn: data.state.currentTurn,
-          rollsLeft: data.state.rollsLeft,
-          scorecard: data.state.scorecard,
-          players: data.state.players,
-        }));
-        break;
+
+   case TYPES.DELTA:
+    console.log('koxkoxkox');
+   if (!gameState) return;           // delta przed pełnym stanem – ignoruj
+   applyDelta(data.delta);
+   renderGame(gameState, scorePreview);
+   if (data.delta.commit || data.delta.turn !== undefined)
+     persistStablePart();
+    break;
+
+          case TYPES.UPDATE:
+   console.warn('UPDATE (fallback) STILL USED!', data);
+   gameState    = data.state;
+   scorePreview = data.scorePreview;
+   renderGame(gameState, scorePreview);
+   persistStablePart();       // to ZAPISZE stan – nie powielaj ręcznie
+   break;
 
       case TYPES.GAME_OVER:
         sessionStorage.setItem('phase', 'finished');

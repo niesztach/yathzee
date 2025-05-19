@@ -6,6 +6,7 @@ export const TYPES = {
   TOGGLE:         0x03,
   END_TURN:       0x04,
   SELECT:         0x05,
+  DELTA:          0x06,
 
   JOINED:         0x10,
   LOBBY_UPDATE:   0x11,
@@ -52,6 +53,10 @@ export function buildSelect(code) {
 }
 
 const textDecoder = new TextDecoder();
+
+  export const CATS = ['ones','twos','threes','fours','fives','sixes',
+              'threeOfAKind','fourOfAKind','fullHouse','smallStraight','largeStraight',
+              'yahtzee','chance','bonus','total'];
 
 // ==== parseMessage (Server → Client) ====
 export function parseMessage(raw) {
@@ -137,6 +142,12 @@ case TYPES.LOBBY_UPDATE: {
   return { type, players, hostId, hostName };
 }
 
+case TYPES.DELTA: {
+  const len    = view.getUint16(off); off += 2;
+  const slice  = new Uint8Array(view.buffer, view.byteOffset + off, len);
+  const delta  = JSON.parse(textDecoder.decode(slice));
+  return { type, delta };
+}
 
     // HOST_CHANGED: [type][newHostIndex]
     case TYPES.HOST_CHANGED: {

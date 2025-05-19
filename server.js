@@ -13,6 +13,7 @@ const {
   buildUpdate,
   buildGameOver,
   buildReconnect,
+  buildDelta
 } = require('./protocol-server.js');
 
 
@@ -39,6 +40,29 @@ function broadcastBinaryToRoom(roomName, buffer) {
   for (const client of room.clients) {
     sendBinary(client, buffer);
   }
+}
+
+function broadcastState(room) {
+  const curr = room.state;
+  const prev = room.prevState
+      ? room.prevState
+      : structuredClone(curr);      //  ←  fallback kopia, nie referencja
+  // 1) policz preview *dla każdego* gracza
+  const previews = {};
+  curr.players.forEach(p => {
+    previews[p.id] = generateScorePreview(curr.dice, curr.scorecard[p.id]);
+  });
+
+  // 2) wyślij do każdego jego wariant
+  room.clients.forEach(sock => {
+    const buf = sock.supportsDelta
+      ? buildDelta(prev, curr, previews[sock.playerId])
+      : buildUpdate(curr, previews[sock.playerId]);
+    sendBinary(sock, buf);
+  });
+
+  // 3) zapamiętaj snapshot na następną deltę
+  room.prevState = structuredClone(curr);
 }
 
 // gry i pokoje
@@ -100,6 +124,7 @@ app.get('/create-room', (req, res) => {
   rooms.set(code, {
     clients: new Set(),
     state: createInitialGameState(),
+    prevState: null,          //  ← NOWE
     hostId: null,
     hostName: null
   });
@@ -184,6 +209,8 @@ function generateScorePreview(dice, scorecard ={}) {
 // --- Obsługa połączeń WS ---
 wss.on('connection', (ws, req) => {
   const url       = new URL(req.url, `http://${req.headers.host}`);
+  const v         = Number(url.searchParams.get('v') || 1);
+  ws.supportsDelta = v >= 2;               //  ← NOWE
   const roomName  = url.searchParams.get('room');
   const incomingId= url.searchParams.get('id');
   const playerName= url.searchParams.get('name')?.trim();
@@ -199,6 +226,7 @@ wss.on('connection', (ws, req) => {
     // START
     if (msg.type===TYPES.START && ws.playerId===room.hostId && state.phase==='lobby') {
       state.phase='playing';
+      room.prevState = structuredClone(state); //zeby mial odpowiedni preview na poczatku
       return broadcastBinaryToRoom(roomName, buildGameStart(state));
     }
     // ROLL
@@ -207,8 +235,8 @@ wss.on('connection', (ws, req) => {
       if (state.locked.every(l=>l)) return sendBinary(ws, buildError('Nie możesz zablokować wszystkich kości przed rzutem.'));
       try {
         rollDice(state);
-        const prev = generateScorePreview(state.dice, state.scorecard[ws.playerId]);
-        return broadcastBinaryToRoom(roomName, buildUpdate(state, prev));
+broadcastState(room);      //  ← NOWE
+return; 
       } catch(e) { return sendBinary(ws, buildError(e.message)); }
     }
     // TOGGLE
@@ -216,16 +244,15 @@ wss.on('connection', (ws, req) => {
       if (state.dice.includes(0)) return sendBinary(ws, buildError('Nie można blokować kości przed rzutem!'));
       try {
         toggleLock(state, msg.index);
-        const prev = generateScorePreview(state.dice, state.scorecard[ws.playerId]);
-        return broadcastBinaryToRoom(roomName, buildUpdate(state, prev));
+broadcastState(room);
+return;
       } catch(e) { return sendBinary(ws, buildError(e.message)); }
     }
     // END_TURN
     if (msg.type===TYPES.END_TURN) {
       endTurn(state);
-      const prev = generateScorePreview(state.dice);
-      return broadcastBinaryToRoom(roomName, buildUpdate(state, prev));
-    }
+broadcastState(room);
+return;  }
   // SELECT
   if (msg.type === TYPES.SELECT) {
     const code = msg.categoryCode;
@@ -239,8 +266,12 @@ wss.on('connection', (ws, req) => {
     // 1) Zapisz wynik
     state.scorecard[ws.playerId][category] = calculateScore(state.dice, category);
 
-        // … zapisujesz wynik …
-    state.scorecard[ws.playerId][category] = calculateScore(state.dice, category);
+// 2) Powiedz delcie, co się zmieniło  ← NEW
+state.lastCommit = {
+  playerId: ws.playerId,
+  cat:      category,                               // pełna nazwa!
+  value:    state.scorecard[ws.playerId][category]
+};
 
     // Sprawdź, czy to był ostatni ruch
     const allFilled = Object.values(state.scorecard)
@@ -252,8 +283,7 @@ wss.on('connection', (ws, req) => {
       state.phase = 'finished';
 
       // 1) Wyślij UPDATE z już wypełnioną tabelą
-      const preview = generateScorePreview(state.dice, state.scorecard[ws.playerId]);
-      broadcastBinaryToRoom(roomName, buildUpdate(state, preview));
+broadcastState(room);
 
       // 2) Teraz GAME_OVER
       return broadcastBinaryToRoom(roomName, buildGameOver(state.scorecard));
@@ -264,10 +294,9 @@ wss.on('connection', (ws, req) => {
     endTurn(state);
 
     // policz preview dla *nowej* tury (z pustymi kośćmi)
-    const preview = generateScorePreview(state.dice, state.scorecard[ws.playerId]);
-    // teraz dopiero wysyłaj UPDATE
-    return broadcastBinaryToRoom(roomName, buildUpdate(state, preview));
-      }
+broadcastState(room);
+return;
+    }
 
 
     // Nieznany typ
