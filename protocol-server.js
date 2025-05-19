@@ -143,7 +143,11 @@ function buildGameOver(scorecard) {
  * RECONNECT: [ type:1 ][ jsonLen:2 ][ jsonBytes ]
  */
 function buildReconnect(state, scorePreview) {
-  const json    = JSON.stringify({ state, scorePreview });
+  const slim    = {
+    ...state,
+    scorecard: pruneScorecard(state.scorecard) //  ← NOWE
+  };
+  const json    = JSON.stringify({ state: slim, scorePreview });
   const payload = Buffer.from(json, 'utf8');
   const buf     = Buffer.alloc(1 + 2 + payload.length);
   let off = 0;
@@ -188,6 +192,18 @@ if (previewForCurrent)
   buf.writeUInt16BE(payload.length, off); off += 2;
   payload.copy(buf, off);
   return buf;
+}
+
+function pruneScorecard(original) {
+  const pruned = {};
+  for (const [pid, card] of Object.entries(original)) {
+    const compact = {};
+    for (const [cat, val] of Object.entries(card)) {
+      if (val != null) compact[cat] = val;     // zachowaj tylko wypełnione
+    }
+    pruned[pid] = compact;                     // może być pusty {}
+  }
+  return pruned;
 }
 
 
