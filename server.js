@@ -1,6 +1,7 @@
 const express = require('express');
 const http    = require('http');
 const WebSocket = require('ws');
+const { categoryCodes } = require('./public/protocol.js');
 
 const {
   TYPES,
@@ -71,8 +72,6 @@ function broadcastState(room) {
   room.prevState = structuredClone(curr);
 }
 
-// gry i pokoje
-
 // Każdy pokój ma swój stan gry i listę ws-ów
 const rooms = new Map();
 
@@ -86,13 +85,13 @@ function createInitialGameState() {
     locked: [false, false, false, false, false],
     currentTurn: 0,
     rollsLeft: 3,
-    scorecard: {}, // { playerId: { ones: null, twos: null, ... } }
+    scorecard: {}, 
   };
 }
 
 function rollDice(state) {
   if (state.rollsLeft <= 0) {
-    throw new Error('No rolls left'); // Możesz to zastąpić komunikatem do klienta
+    throw new Error('No rolls left'); 
   }
   state.dice = state.dice.map((val, i) =>
     state.locked[i] ? val : Math.floor(Math.random() * 6) + 1
@@ -102,7 +101,7 @@ function rollDice(state) {
 
 function toggleLock(state, index) {
   if (index < 0 || index >= state.dice.length) throw new Error('Invalid dice index');
-  state.locked[index] = !state.locked[index]; // Zmień stan blokady
+  state.locked[index] = !state.locked[index];
 }
 
 function endTurn(state) {
@@ -137,26 +136,16 @@ app.get('/create-room', (req, res) => {
   res.json({ roomCode: code });
 });
 
-
-
-
 function calculateScore(dice, category) {
   const counts = Array(7).fill(0); // Licznik dla wartości od 1 do 6
   dice.forEach(d => counts[d]++);
 
-  // Posortuj kostki i usuń duplikaty
+  // sortowanie kostek do stritów
   const sortedDice = [...new Set(dice)].sort((a, b) => a - b);
 
   // Możliwe sekwencje dla stritów
-  const smallStraights = [
-    [1, 2, 3, 4],
-    [2, 3, 4, 5],
-    [3, 4, 5, 6]
-  ];
-  const largeStraights = [
-    [1, 2, 3, 4, 5],
-    [2, 3, 4, 5, 6]
-  ];
+  const smallStraights = [[1, 2, 3, 4], [2, 3, 4, 5], [3, 4, 5, 6]];
+  const largeStraights = [ [1, 2, 3, 4, 5],  [2, 3, 4, 5, 6]];
 
   switch (category) {
     case 'ones': return counts[1] * 1;
@@ -178,9 +167,6 @@ function calculateScore(dice, category) {
     default: return 0;
   }
 }
-
-
-
 
 function generateScorePreview(dice, scorecard ={}) {
   const categories = [
@@ -212,7 +198,6 @@ function generateScorePreview(dice, scorecard ={}) {
 
 // ############  obsługa websocketów ###################
 
-// --- Obsługa połączeń WS ---
 wss.on('connection', (ws, req) => {
   const url       = new URL(req.url, `http://${req.headers.host}`);
   const v         = Number(url.searchParams.get('v') || 1);
@@ -233,79 +218,65 @@ wss.on('connection', (ws, req) => {
     if (msg.type===TYPES.START && ws.playerId===room.hostId && state.phase==='lobby') {
       state.phase='playing';
       room.prevState = structuredClone(state); //zeby mial odpowiedni preview na poczatku
- const cleanState = structuredClone(state);   // lub {...state}
- delete cleanState.scorecard;                 // << TU usuwamy
- return broadcastBinaryToRoom(roomName, buildGameStart(cleanState));
+      const cleanState = structuredClone(state);   
+      delete cleanState.scorecard;                 // nie ma sensu wysylac punktacji przed rozpoczeciem gry
+    return broadcastBinaryToRoom(roomName, buildGameStart(cleanState));
     }
+
     // ROLL
     if (msg.type===TYPES.ROLL) {
       if (ws.playerId!==current.id) return sendBinary(ws, buildError('To nie jest Twoja tura!'));
       if (state.locked.every(l=>l)) return sendBinary(ws, buildError('Nie możesz zablokować wszystkich kości przed rzutem.'));
       try {
         rollDice(state);
-broadcastState(room);      //  ← NOWE
-return; 
+        broadcastState(room);  
+        return; 
       } catch(e) { return sendBinary(ws, buildError(e.message)); }
     }
+
     // TOGGLE
     if (msg.type===TYPES.TOGGLE) {
       if (state.dice.includes(0)) return sendBinary(ws, buildError('Nie można blokować kości przed rzutem!'));
       try {
         toggleLock(state, msg.index);
-broadcastState(room);
-return;
+        broadcastState(room);
+        return;
       } catch(e) { return sendBinary(ws, buildError(e.message)); }
     }
-    // END_TURN
-    if (msg.type===TYPES.END_TURN) {
-      endTurn(state);
-broadcastState(room);
-return;  }
+
   // SELECT
   if (msg.type === TYPES.SELECT) {
     const code = msg.categoryCode;
-    const category = Object.entries(require('./public/protocol.js').categoryCodes)
-      .find(([,c]) => c === code)?.[0];
+    const category = Object.entries(categoryCodes).find(([,c]) => c === code)?.[0];
     if (!category) return sendBinary(ws, buildError('Nieznana kategoria'));
     if (ws.playerId !== current.id) return sendBinary(ws, buildError('To nie jest Twoja tura!'));
     if (state.scorecard[ws.playerId][category] != null || state.dice.includes(0))
-      return sendBinary(ws, buildError('Błąd - kategoria zajęta lub kości nie zostały rzucone!'));
+    return sendBinary(ws, buildError('Błąd - kategoria zajęta lub kości nie zostały rzucone!'));
 
-    // 1) Zapisz wynik
+    // Zapisanie wyniku
     state.scorecard[ws.playerId][category] = calculateScore(state.dice, category);
 
-// 2) Powiedz delcie, co się zmieniło  ← NEW
-state.lastCommit = {
-  playerId: ws.playerId,
-  cat:      category,                               // pełna nazwa!
-  value:    state.scorecard[ws.playerId][category]
-};
+    // Przekazanie zmian delta
+    state.lastCommit = {
+      playerId: ws.playerId, cat: category, value: state.scorecard[ws.playerId][category]};
 
     // Sprawdź, czy to był ostatni ruch
-    const allFilled = Object.values(state.scorecard)
-      .every(sc => Object.values(sc).every(v => v != null));
+    const allFilled = Object.values(state.scorecard).every(sc => Object.values(sc).every(v => v != null));
 
+    // obsługa końca gry
     if (allFilled) {
       console.log('MSG: KONIEC GRY');
-      // KONIEC GRY
       state.phase = 'finished';
-
-      // 1) Wyślij UPDATE z już wypełnioną tabelą
-broadcastState(room);
-
-      // 2) Teraz GAME_OVER
+      broadcastState(room);
       return broadcastBinaryToRoom(roomName, buildGameOver(state.scorecard));
     }
 
     // NIE KONIEC GRY → zmień turę
     state.dice = [0, 0, 0, 0, 0];
     endTurn(state);
-
-    // policz preview dla *nowej* tury (z pustymi kośćmi)
-broadcastState(room);
-return;
+    broadcastState(room);
+    return;
     }
-
 
     // Nieznany typ
     return sendBinary(ws, buildError('Nieznany typ wiadomości'));

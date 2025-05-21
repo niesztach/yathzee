@@ -4,7 +4,7 @@ export const TYPES = {
   START:          0x01,
   ROLL:           0x02,
   TOGGLE:         0x03,
-  END_TURN:       0x04,
+  //END_TURN:       0x04,
   SELECT:         0x05,
   DELTA:          0x06,
 
@@ -38,7 +38,6 @@ export const categoryCodes = {
 // ==== wychodzące (Client → Server) ====
 export function buildStart()   { return Uint8Array.of(TYPES.START).buffer; }
 export function buildRoll()    { return Uint8Array.of(TYPES.ROLL).buffer; }
-export function buildEndTurn() { return Uint8Array.of(TYPES.END_TURN).buffer; }
 export function buildToggle(i) {
   const buf = new ArrayBuffer(2), v = new DataView(buf);
   v.setUint8(0, TYPES.TOGGLE);
@@ -58,9 +57,8 @@ const textDecoder = new TextDecoder();
               'threeOfAKind','fourOfAKind','fullHouse','smallStraight','largeStraight',
               'yahtzee','chance','bonus','total'];
 
-// ==== parseMessage (Server → Client) ====
+// ==== parseMessage (server -> client) ====
 export function parseMessage(raw) {
-  // accept ArrayBuffer or any TypedArray (incl. Node Buffer if ever used)
   let view;
   if (raw instanceof ArrayBuffer) {
     view = new DataView(raw);
@@ -77,8 +75,7 @@ export function parseMessage(raw) {
     // proste komendy
     case TYPES.START:
     case TYPES.ROLL:
-    case TYPES.END_TURN:
-      return { type };
+    return { type };
 
     case TYPES.TOGGLE:
       return { type, index: view.getUint8(off++) };
@@ -142,6 +139,7 @@ case TYPES.LOBBY_UPDATE: {
   return { type, players, hostId, hostName };
 }
 
+
 case TYPES.DELTA: {
   const len    = view.getUint16(off); off += 2;
   const slice  = new Uint8Array(view.buffer, view.byteOffset + off, len);
@@ -166,6 +164,7 @@ case TYPES.DELTA: {
     // UPDATE / RECONNECT: [type][jsonLen:2][ {state,scorePreview} ]
     case TYPES.UPDATE:
     case TYPES.RECONNECT: {
+      console.log('using obsolete');
       const len = view.getUint16(off); off += 2;
       const slice = new Uint8Array(view.buffer, view.byteOffset + off, len);
       const { state, scorePreview } = JSON.parse(textDecoder.decode(slice));

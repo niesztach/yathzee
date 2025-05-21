@@ -13,7 +13,7 @@ function writeString(buf, offset, str) {
 }
 
 /**
- * ERROR: [ type:1 ][ msgLen:1 ][ msgBytes ]
+  ERROR: [ type:1 ][ msgLen:1 ][ msgBytes ]
  */
 function buildError(message) {
   const msgBuf = Buffer.from(message, 'utf8');
